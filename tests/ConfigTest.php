@@ -74,6 +74,40 @@ final class ConfigTest extends TestCase
     /**
      * @covers \Tutelar\Config::load
      */
+    public function testMalformedJsonThrowsRatherThanSilentlyEmptyingTheConfig(): void
+    {
+        file_put_contents($this->path, '{ "token": "t",  <-- oops');
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessageMatches('/not valid JSON/');
+
+        Config::load($this->path, ['TOKEN' => 't']);
+    }
+
+    /**
+     * @covers \Tutelar\Config::load
+     */
+    public function testAnOutOfRangePresenceTypeIsClampedToPlaying(): void
+    {
+        $this->writeConfig([
+            'token' => 't',
+            'presence' => [
+                ['name' => 'bad type', 'type' => 99],
+                ['name' => 'negative', 'type' => -3],
+                ['name' => 'watching', 'type' => 3],
+            ],
+        ]);
+
+        $config = Config::load($this->path, []);
+
+        $this->assertSame(0, $config->presence[0]['type']);
+        $this->assertSame(0, $config->presence[1]['type']);
+        $this->assertSame(3, $config->presence[2]['type'], 'a valid type is left alone');
+    }
+
+    /**
+     * @covers \Tutelar\Config::load
+     */
     public function testAMissingFileIsFineAsLongAsTheEnvironmentHasAToken(): void
     {
         $config = Config::load($this->path . '.nope', ['TOKEN' => 't']);

@@ -15,6 +15,7 @@ namespace Tutelar\Modules;
 
 use Discord\Builders\CommandBuilder;
 use Discord\Parts\Embed\Embed;
+use Discord\Parts\Guild\Guild;
 use Discord\Parts\Guild\Onboarding as OnboardingPart;
 use Discord\Parts\Guild\OnboardingPrompt;
 use Discord\Parts\Interactions\Command\Command;
@@ -24,6 +25,7 @@ use Discord\Parts\OAuth\Application;
 use Discord\Repository\Interaction\GlobalCommandRepository;
 use React\Promise\PromiseInterface;
 use Tutelar\Support\Permissions;
+use Tutelar\Support\Text;
 use Tutelar\Tutelar;
 
 /**
@@ -36,13 +38,22 @@ use Tutelar\Tutelar;
  * the roles/channels each option grants, the auto-opt-in channels) and
  * `/onboarding enable|disable` flips it, both gated on Manage Server.
  *
- * Guild-only; requires the bot to have `MANAGE_GUILD` + `MANAGE_ROLES` to write.
+ * Guild-only. Every sub-command reads or writes onboarding over the REST API
+ * before it can reply, so the handler defers the interaction first (see
+ * {@see route()}). Writing (`enable`/`disable`) needs the bot itself to hold
+ * `MANAGE_GUILD` + `MANAGE_ROLES`.
  *
  * @since 2.0.0
  */
 final class Onboarding implements Module
 {
     private const COLOR = 0xA7C5FD;
+
+    /** Stop adding prompt fields once the embed's text nears Discord's 6000-char ceiling. */
+    private const EMBED_BUDGET = 5000;
+
+    /** Discord allows 25 embed fields; one is spent on "Auto opt-in channels". */
+    private const MAX_PROMPT_FIELDS = 24;
 
     public function name(): string
     {
@@ -65,13 +76,15 @@ final class Onboarding implements Module
         $sub = static fn(string $name, string $desc): Option => (new Option($bot))
             ->setType(Option::SUB_COMMAND)->setName($name)->setDescription($desc);
 
+        // Guild-only (onboarding is a guild concept) and guild-install only — a
+        // user-installed copy could only ever run in a guild anyway, and it is
+        // gated on Manage Server on top.
         CommandBuilder::new()
             ->setName('onboarding')
             ->setType(Command::CHAT_INPUT)
             ->setDescription('Inspect or toggle this server\'s built-in onboarding / Channels & Roles flow.')
             ->setContext([Interaction::CONTEXT_TYPE_GUILD])
             ->addIntegrationType(Application::INTEGRATION_TYPE_GUILD_INSTALL)
-            ->addIntegrationType(Application::INTEGRATION_TYPE_USER_INSTALL)
             ->addOption($sub('view', 'Show the current onboarding prompts and what each option grants.'))
             ->addOption($sub('enable', 'Turn onboarding on.'))
             ->addOption($sub('disable', 'Turn onboarding off.'))
@@ -82,7 +95,7 @@ final class Onboarding implements Module
     private function route(Tutelar $bot, Interaction $interaction): PromiseInterface
     {
         $guild = $interaction->guild;
-        if ($guild === null) {
+        if (! $guild instanceof Guild) {
             return $interaction->respondWithMessage(Tutelar::reply(false)->setContent('This command only works in a server.'), true);
         }
 
@@ -92,37 +105,38 @@ final class Onboarding implements Module
 
         $action = (string) ($interaction->data->options?->first()?->name ?? 'view');
 
-        return match ($action) {
-            'enable' => $this->toggle($bot, $interaction, $guild, true),
-            'disable' => $this->toggle($bot, $interaction, $guild, false),
+        // Every branch does a Discord API round-trip before it can reply, which
+        // can outrun the 3-second interaction deadline — so defer first, then
+        // edit the deferred (ephemeral) response.
+        return $interaction->acknowledgeWithResponse(true)->then(fn() => match ($action) {
+            'enable' => $this->toggle($interaction, $guild, true),
+            'disable' => $this->toggle($interaction, $guild, false),
             default => $this->view($bot, $interaction, $guild),
-        };
+        });
     }
 
-    private function view(Tutelar $bot, Interaction $interaction, object $guild): PromiseInterface
+    private function view(Tutelar $bot, Interaction $interaction, Guild $guild): PromiseInterface
     {
         return $guild->getOnboarding()->then(
-            fn(OnboardingPart $onboarding) => $interaction->respondWithMessage(
+            fn(OnboardingPart $onboarding) => $interaction->updateOriginalResponse(
                 Tutelar::reply(false)->addEmbed($this->embed($bot, $onboarding)),
-                true,
             ),
-            fn(\Throwable $e) => $interaction->respondWithMessage(
+            fn(\Throwable $e) => $interaction->updateOriginalResponse(
                 Tutelar::reply(false)->setContent('Could not read onboarding: ' . $e->getMessage()),
-                true,
             ),
         );
     }
 
-    private function toggle(Tutelar $bot, Interaction $interaction, object $guild, bool $enabled): PromiseInterface
+    private function toggle(Interaction $interaction, Guild $guild, bool $enabled): PromiseInterface
     {
+        // Discord's Modify Guild Onboarding takes each field as optional, so
+        // sending only `enabled` leaves the prompts and opt-in channels intact.
         return $guild->modifyOnboarding(['enabled' => $enabled], 'Tutelar /onboarding by ' . $interaction->user->id)->then(
-            fn() => $interaction->respondWithMessage(
+            fn() => $interaction->updateOriginalResponse(
                 Tutelar::reply(false)->setContent($enabled ? '✅ Onboarding is now **on**.' : '✅ Onboarding is now **off**.'),
-                true,
             ),
-            fn(\Throwable $e) => $interaction->respondWithMessage(
+            fn(\Throwable $e) => $interaction->updateOriginalResponse(
                 Tutelar::reply(false)->setContent('Could not update onboarding: ' . $e->getMessage() . "\n(the bot needs **Manage Server** + **Manage Roles**)"),
-                true,
             ),
         );
     }
@@ -142,23 +156,27 @@ final class Onboarding implements Module
         $defaults = self::mentionList((array) $onboarding->default_channel_ids, '#');
         $embed->addFieldValues('Auto opt-in channels', $defaults === '' ? '*(none)*' : $defaults);
 
-        $count = 0;
-        foreach (($onboarding->prompts ?? []) as $prompt) {
-            if (++$count > 20) {
+        $shown = 0;
+        $budget = self::EMBED_BUDGET;
+        $prompts = $onboarding->prompts ?? [];
+        foreach ($prompts as $prompt) {
+            $heading = self::promptHeading(
+                (string) $prompt->title,
+                (bool) $prompt->required,
+                (bool) $prompt->single_select,
+                (bool) $prompt->in_onboarding,
+            );
+            $body = self::promptBody(self::optionRows($prompt));
+            $budget -= mb_strlen($heading) + mb_strlen($body);
+            if ($shown >= self::MAX_PROMPT_FIELDS || $budget < 0) {
+                $embed->addFieldValues('…', sprintf('and %d more prompt(s) — open Server Settings → Onboarding.', count($prompts) - $shown));
                 break;
             }
-            $embed->addFieldValues(
-                self::promptHeading(
-                    (string) $prompt->title,
-                    (bool) $prompt->required,
-                    (bool) $prompt->single_select,
-                    (bool) $prompt->in_onboarding,
-                ),
-                self::promptBody(self::optionRows($prompt)),
-            );
+            $embed->addFieldValues($heading, $body);
+            $shown++;
         }
 
-        if ($count === 0) {
+        if ($shown === 0 && count($prompts) === 0) {
             $embed->addFieldValues('Prompts', '*(none configured — set them up in Server Settings → Onboarding)*');
         }
 
@@ -196,7 +214,7 @@ final class Onboarding implements Module
         $flags[] = $singleSelect ? 'pick one' : 'pick any';
         $flags[] = $inOnboarding ? 'in onboarding' : 'Channels & Roles only';
 
-        return EventLogger::trim(($title ?: 'Untitled prompt') . ' — ' . implode(', ', $flags), 240);
+        return Text::clip(($title ?: 'Untitled prompt') . ' — ' . implode(', ', $flags), 240);
     }
 
     /**
@@ -213,15 +231,22 @@ final class Onboarding implements Module
             $lines[] = '• ' . (($option['title'] ?? '') ?: 'Untitled') . ($grants ? ' → ' . implode('  ', $grants) : '');
         }
 
-        return EventLogger::trim($lines === [] ? '*(no options)*' : implode("\n", $lines), 1000);
+        return Text::clip($lines === [] ? '*(no options)*' : implode("\n", $lines), 1000);
     }
 
-    /** `<#id> <#id>` / `<@&id> <@&id>` for a list of ids, capped so the field fits. */
+    /**
+     * `<#id> <#id>` / `<@&id> <@&id>` for a list of ids, showing at most 15 and
+     * a `+N` tail for the rest so a field can't overflow.
+     *
+     * @param list<string|int> $ids
+     * @param string           $sigil `#` for channels, `@&` for roles
+     */
     public static function mentionList(array $ids, string $sigil): string
     {
-        $out = [];
-        foreach (array_slice($ids, 0, 15) as $id) {
-            $out[] = '<' . $sigil . $id . '>';
+        $shown = array_slice($ids, 0, 15);
+        $out = array_map(static fn($id): string => '<' . $sigil . $id . '>', $shown);
+        if (count($ids) > count($shown)) {
+            $out[] = '+' . (count($ids) - count($shown));
         }
 
         return implode(' ', $out);

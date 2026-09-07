@@ -90,7 +90,27 @@ php bot.php
 
 `config.json` (committable — no secrets) holds `github`, the `presence` rotation
 list + `presence_interval`, and per-guild `channels` / `roles` defaults keyed by
-guild id. Runtime edits are layered on top from the state store.
+guild id:
+
+```jsonc
+{
+  "github": "https://github.com/…",
+  "presence_interval": 120,
+  "presence": [{ "name": "over the server", "type": 3, "state": "idle" }],
+  "guilds": {
+    "1234567890": { "channels": { "log": "1112223334445556667" } }
+  }
+}
+```
+
+`EventLogger` stays inert for a guild until `channels.log` is set here. The
+`Store` (`var/state.json`) can layer runtime overrides on top of these defaults;
+the command that would edit them at runtime is still on the to-do list, so for
+now edit `config.json` and restart.
+
+**Privileged intents:** `bot.php` requests `GUILD_MEMBERS` and `MESSAGE_CONTENT`
+— enable both for the application in the Discord Developer Portal, or the gateway
+will refuse the connection.
 
 ## Tests
 

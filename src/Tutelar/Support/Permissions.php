@@ -30,16 +30,20 @@ final class Permissions
     public const MANAGER = ['administrator', 'manage_guild'];
 
     /**
+     * Does `$member` hold any of the `$any` permissions — server-wide, or in
+     * `$channel` when given? A null member, or a member whose permissions can't
+     * be resolved, counts as "no" (fail closed).
+     *
      * @param list<string> $any    Permission names — see DiscordPHP's RolePermission.
-     * @param Member|null  $member The member to check (null → false).
+     * @param Member|null  $member The member to check.
      */
     public static function memberHasAny(array $any, ?Member $member, ?Channel $channel = null): bool
     {
-        if ($member === null) {
+        $held = $member?->getPermissions($channel);
+        if ($held === null) {
             return false;
         }
 
-        $held = $member->getPermissions($channel);
         $flags = [];
         foreach ($any as $perm) {
             $flags[$perm] = ! empty($held->{$perm});

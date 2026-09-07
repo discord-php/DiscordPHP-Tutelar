@@ -42,6 +42,7 @@ require file_exists(__DIR__ . '/vendor/autoload.php')
             continue;
         }
         [$name, $value] = array_map('trim', explode('=', $line, 2));
+        $value = preg_replace('/^([\'"])(.*)\1$/', '$2', $value); // strip matching surrounding quotes
         if (getenv($name) === false) {
             putenv("{$name}={$value}");
             $_ENV[$name] = $value;
@@ -63,6 +64,10 @@ $statePath = getenv('TUTELAR_STATE_PATH') ?: (__DIR__ . '/var/state.json');
 $config = Config::load($configPath, $_ENV + getenv());
 $store = new Store($statePath);
 
+// GUILD_MEMBERS and MESSAGE_CONTENT are privileged — enable them for the
+// application in the Discord Developer Portal or the gateway will refuse the
+// connection. They power EventLogger's member events and message diffs;
+// GUILD_MODERATION (ban add/remove) is not privileged.
 $bot = new Tutelar($config, $store, [
     'logger' => $logger,
     'intents' => Intents::getDefaultIntents()

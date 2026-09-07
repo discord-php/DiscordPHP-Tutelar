@@ -13,10 +13,12 @@ declare(strict_types=1);
 
 namespace Tutelar\Modules;
 
+use Discord\Parts\Channel\Message;
 use Discord\Parts\Embed\Embed;
 use Discord\Parts\Guild\Ban;
 use Discord\Parts\User\Member;
 use Discord\WebSockets\Event;
+use Tutelar\Support\Text;
 use Tutelar\Tutelar;
 
 /**
@@ -26,6 +28,13 @@ use Tutelar\Tutelar;
  * Consolidates the legacy `log_functions.php` — one `$log_builder` closure plus
  * eight near-identical per-event handlers — into a single module whose only
  * per-event branch is which fields to add.
+ *
+ * Needs the `GUILD_MESSAGES` intent (default) for the message events, and the
+ * privileged `GUILD_MEMBERS` + `MESSAGE_CONTENT` intents for the member events
+ * and for the before/after text; without `MESSAGE_CONTENT` the message handlers
+ * simply have nothing to show and skip. The log channel is
+ * `guilds.<id>.channels.log` in the config / store; with none set the module is
+ * inert.
  *
  * @since 2.0.0
  */
@@ -40,38 +49,51 @@ final class EventLogger implements Module
 
     public function boot(Tutelar $bot): void
     {
+        // A message edit: only when we can actually see both texts (cached old
+        // message + MESSAGE_CONTENT intent) and they differ.
         $bot->on(Event::MESSAGE_UPDATE, function ($message, $discord, $old) use ($bot): void {
-            if (! $this->loggableMessage($bot, $message) || $old === null || $message->content === $old->content) {
+            if (! $this->loggableMessage($bot, $message) || ! $old instanceof Message || $message->content === $old->content) {
                 return;
             }
             $this->send($bot, $message->guild_id, $this->messageEmbed($bot, $message, 'Message edited', [
-                'Before' => self::trim((string) $old->content),
-                'After' => self::trim((string) $message->content),
+                'Before' => Text::clip((string) $old->content),
+                'After' => Text::clip((string) $message->content),
             ]));
         });
 
+        // A message delete: only useful when the message was cached (so we have
+        // its content); an uncached delete arrives as a bare {id, channel_id,
+        // guild_id} stdClass with nothing to log.
         $bot->on(Event::MESSAGE_DELETE, function ($message) use ($bot): void {
-            if (! $this->loggableMessage($bot, $message) || (string) $message->content === '') {
+            if (! $message instanceof Message || ! $this->loggableMessage($bot, $message) || (string) $message->content === '') {
                 return;
             }
             $this->send($bot, $message->guild_id, $this->messageEmbed($bot, $message, 'Message deleted', [
-                'Content' => self::trim((string) $message->content),
+                'Content' => Text::clip((string) $message->content),
             ]));
         });
 
+        // Bulk delete: DiscordPHP hands us a Collection of (Message|stdClass)
+        // items, each carrying guild_id/channel_id even when uncached.
         $bot->on(Event::MESSAGE_DELETE_BULK, function ($messages) use ($bot): void {
-            $first = is_iterable($messages) ? (iterator_to_array($messages)[0] ?? null) : null;
-            $guildId = $first->guild_id ?? null;
-            $count = is_countable($messages) ? count($messages) : iterator_count($messages);
-            if ($guildId !== null) {
-                $this->send($bot, $guildId, $this->baseEmbed($bot)->setTitle('Bulk message delete')->setDescription("**{$count}** messages were removed."));
+            $first = is_object($messages) && method_exists($messages, 'first') ? $messages->first() : null;
+            if ($first === null) {
+                return;
             }
+            $count = is_countable($messages) ? count($messages) : 0;
+            $embed = $this->baseEmbed($bot)
+                ->setTitle('Bulk message delete')
+                ->setDescription("**{$count}** messages were removed from <#{$first->channel_id}>.");
+            $this->send($bot, $first->guild_id ?? null, $embed);
         });
 
         $bot->on(Event::GUILD_MEMBER_ADD, fn(Member $m) => $this->send($bot, $m->guild_id, $this->userEmbed($bot, $m->user, 'Member joined')?->addFieldValues('Account created', '<t:' . $m->user->createdTimestamp() . ':R>', true)));
 
         $bot->on(Event::GUILD_MEMBER_REMOVE, fn(Member $m) => $this->send($bot, $m->guild_id, $this->userEmbed($bot, $m->user, 'Member left')));
 
+        // Member update fires for many reasons (boost, pending, timeout, avatar);
+        // we only report nickname and role changes, and only with the cached
+        // "before" to diff against.
         $bot->on(Event::GUILD_MEMBER_UPDATE, function (Member $new, $discord, ?Member $old) use ($bot): void {
             if ($old === null) {
                 return;
@@ -92,7 +114,10 @@ final class EventLogger implements Module
 
     // --- pure helpers (unit-tested) --------------------------------------
 
-    /** `` `old` → `new` `` when they differ, else null. */
+    /**
+     * `` `old` → `new` `` when the two differ, else null. An empty / null side
+     * renders as `` `—` `` so "set" and "cleared" are still legible.
+     */
     public static function describeChange(?string $old, ?string $new): ?string
     {
         if ((string) $old === (string) $new) {
@@ -103,7 +128,8 @@ final class EventLogger implements Module
     }
 
     /**
-     * "+RoleA, +RoleB / -RoleC" for the symmetric difference, or null when equal.
+     * Space-separated role mentions for the symmetric difference — added roles
+     * as `+<@&id>`, removed as `-<@&id>` — or null when the sets are equal.
      *
      * @param list<string> $old
      * @param list<string> $new
@@ -127,14 +153,14 @@ final class EventLogger implements Module
         return implode(' ', $parts);
     }
 
-    public static function trim(string $text, int $limit = 1000): string
-    {
-        return mb_strlen($text) > $limit ? mb_substr($text, 0, $limit - 1) . '…' : ($text === '' ? '*(empty)*' : $text);
-    }
-
     // --- internal -------------------------------------------------------
 
-    private function loggableMessage(Tutelar $bot, $message): bool
+    /**
+     * A message we should log: in a guild, from a real human (not this bot, not
+     * another bot, not a webhook). Safe to call with the bare stdClass that an
+     * uncached event carries — every access is null-guarded.
+     */
+    private function loggableMessage(Tutelar $bot, mixed $message): bool
     {
         return $message !== null
             && ($message->guild_id ?? null) !== null
@@ -143,12 +169,18 @@ final class EventLogger implements Module
             && empty($message->author->bot);
     }
 
-    /** @param array<string, string> $fields */
-    private function messageEmbed(Tutelar $bot, $message, string $title, array $fields): Embed
+    /**
+     * A user-authored embed (author = the message's author) plus the channel and
+     * a jump link.
+     *
+     * @param Message               $message
+     * @param array<string, string> $fields
+     */
+    private function messageEmbed(Tutelar $bot, Message $message, string $title, array $fields): Embed
     {
         $embed = $this->userEmbed($bot, $message->author ?? null, $title, $fields) ?? $this->baseEmbed($bot)->setTitle($title);
         $embed->addFieldValues('Channel', "<#{$message->channel_id}>", true);
-        if ($link = $message->getLinkAttribute()) {
+        if ($link = $message->link) {
             $embed->addFieldValues('Jump', "[link]({$link})", true);
         }
 
@@ -156,9 +188,13 @@ final class EventLogger implements Module
     }
 
     /**
-     * @param array<string, string> $fields
+     * A titled embed whose author is `$user`, with `$fields` appended (inline
+     * when short). Returns null when `$user` is null so callers can `?->` on it.
+     *
+     * @param object|null           $user   A User part, or null.
+     * @param array<string, string> $fields name => value
      */
-    private function userEmbed(Tutelar $bot, $user, string $title, array $fields = []): ?Embed
+    private function userEmbed(Tutelar $bot, ?object $user, string $title, array $fields = []): ?Embed
     {
         if ($user === null) {
             return null;
@@ -171,6 +207,7 @@ final class EventLogger implements Module
         return $embed;
     }
 
+    /** A blank embed with the module's colour, a timestamp and the repo footer. */
     private function baseEmbed(Tutelar $bot): Embed
     {
         $embed = (new Embed($bot))->setColor(self::COLOR)->setTimestamp();
@@ -181,6 +218,11 @@ final class EventLogger implements Module
         return $embed;
     }
 
+    /**
+     * Sends `$embed` to the guild's configured `log` channel. No-ops when the
+     * guild has no log channel set or the bot cannot see it; a failed send is
+     * logged, never thrown.
+     */
     private function send(Tutelar $bot, int|string|null $guildId, ?Embed $embed): void
     {
         if ($guildId === null || $embed === null) {
@@ -195,12 +237,18 @@ final class EventLogger implements Module
         });
     }
 
-    /** @return list<string> */
-    private static function roleIds($member): array
+    /**
+     * The role ids on a member. Iterating `$member->roles` yields Role parts
+     * when the guild's role cache is warm and can be empty when it isn't; the
+     * `is_object` check also tolerates a bare-id entry.
+     *
+     * @return list<string>
+     */
+    private static function roleIds(Member $member): array
     {
         $ids = [];
-        foreach ($member->roles ?? [] as $role) {
-            $ids[] = (string) ($role->id ?? $role);
+        foreach ($member->roles as $role) {
+            $ids[] = is_object($role) ? (string) $role->id : (string) $role;
         }
 
         return $ids;

@@ -51,14 +51,8 @@ final class EventLoggerTest extends TestCase
         $this->assertNull(EventLogger::describeRoleChange(['1', '2'], ['2', '1']));
     }
 
-    public function testTrimAddsAnEllipsisOnlyWhenOverTheLimit(): void
+    public function testDescribeRoleChangeReportsAPureAddition(): void
     {
-        $this->assertSame('short', EventLogger::trim('short', 100));
-        $this->assertSame(str_repeat('x', 9) . '…', EventLogger::trim(str_repeat('x', 50), 10));
-    }
-
-    public function testTrimRendersTheEmptyStringVisibly(): void
-    {
-        $this->assertSame('*(empty)*', EventLogger::trim(''));
+        $this->assertSame('+<@&9>', EventLogger::describeRoleChange([], ['9']));
     }
 }

@@ -33,6 +33,7 @@ final class OnboardingTest extends TestCase
         $rendered = Onboarding::mentionList(range(1, 40), '#');
 
         $this->assertSame(15, substr_count($rendered, '<#'));
+        $this->assertStringEndsWith(' +25', $rendered, 'the remainder is summarised, not dropped silently');
     }
 
     public function testPromptHeadingSummarisesThePromptFlags(): void

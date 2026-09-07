@@ -21,6 +21,10 @@ namespace Tutelar;
  * Replaces the legacy `VarSave()` / `VarLoad()` and the in-memory
  * `$tutelar->discord_config` array.
  *
+ * The `setGuild*` / `forgetGuild` mutators are the write side of a planned
+ * `/config` command; today the overrides they produce are more usually written
+ * straight into `config.json` (see the README).
+ *
  * @since 2.0.0
  */
 final class Store
@@ -61,7 +65,7 @@ final class Store
         $this->save();
     }
 
-    /** Wipes a guild's runtime overrides (`!s reset`). */
+    /** Wipes a guild's runtime overrides, falling the guild back to `config.json` defaults. */
     public function forgetGuild(int|string $guildId): void
     {
         unset($this->data['guilds'][(string) $guildId]);
@@ -86,15 +90,26 @@ final class Store
         return $this->data;
     }
 
+    /**
+     * Atomically persists the store: encode, write a pid-suffixed sibling temp
+     * file, then rename it over the target. Bails without touching the live file
+     * if the data can't be encoded (e.g. a module stashed a non-UTF-8 string) or
+     * the temp write fails, so a bad value never truncates the state.
+     */
     private function save(): void
     {
+        $json = json_encode($this->data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        if ($json === false) {
+            return;
+        }
+
         $dir = \dirname($this->path);
         if (! is_dir($dir)) {
             @mkdir($dir, 0o777, true);
         }
 
         $tmp = $this->path . '.' . getmypid() . '.tmp';
-        if (file_put_contents($tmp, json_encode($this->data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)) === false) {
+        if (file_put_contents($tmp, $json) === false) {
             return;
         }
         @rename($tmp, $this->path);

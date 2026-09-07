@@ -39,12 +39,18 @@ final class PresenceRotator implements Module
             return;
         }
 
+        // Floor at 15s: the gateway rate-limits presence updates (~5 / 20s), and
+        // a faster rotation just reads as flicker.
         $interval = max(15, $bot->getConfig()->presenceInterval);
+
         $rotate = function () use ($bot, $entries): void {
             $i = count($entries) === 1 ? 0 : $this->pickDifferentIndex(count($entries));
             $this->last = $i;
             $entry = $entries[$i];
 
+            // $entry['type'] is a valid Activity type (Config clamps it); the
+            // third arg is the presence *status* (online/idle/dnd/…), which
+            // config calls "state" — updatePresence coerces an unknown value.
             $bot->updatePresence(
                 new Activity($bot, ['name' => $entry['name'], 'type' => $entry['type']]),
                 false,
@@ -52,7 +58,7 @@ final class PresenceRotator implements Module
             );
         };
 
-        $rotate();
+        $rotate();                                          // show one immediately
         $bot->getLoop()->addPeriodicTimer($interval, $rotate);
     }
 

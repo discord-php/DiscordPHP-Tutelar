@@ -28,9 +28,9 @@ final class Config
 {
     /**
      * @param string                                               $token            Discord bot token (from the environment, never the file).
-     * @param string|null                                          $ownerId          Bot owner's Discord user id; unlocks owner-only commands.
+     * @param string|null                                          $ownerId          Bot owner's Discord user id. Loaded for future owner-only commands; no module reads it yet.
      * @param string|null                                          $github           Repo URL shown in embed footers.
-     * @param list<array{name: string, type: int, state?: string}> $presence         Rotating activity list.
+     * @param list<array{name: string, type: int, state?: string}> $presence         Rotating activity list; `type` is an Activity type (0-5), `state` a presence status.
      * @param int                                                  $presenceInterval Seconds between presence changes.
      * @param array<string, GuildConfig>                           $guilds           Per-guild defaults, keyed by guild id.
      */
@@ -46,11 +46,18 @@ final class Config
     /**
      * Builds the config from `$path` (JSON) with environment overrides.
      *
-     * @throws \RuntimeException When the token is not set anywhere.
+     * @throws \RuntimeException When the file exists but is not valid JSON, or
+     *                           when the token is not set anywhere.
      */
     public static function load(string $path, array $env): self
     {
-        $data = is_file($path) ? json_decode((string) file_get_contents($path), true) : [];
+        $data = [];
+        if (is_file($path)) {
+            $data = json_decode((string) file_get_contents($path), true);
+            if (json_last_error() !== JSON_ERROR_NONE) {
+                throw new \RuntimeException("Config file {$path} is not valid JSON: " . json_last_error_msg());
+            }
+        }
         $data = is_array($data) ? $data : [];
 
         $token = (string) ($env['TOKEN'] ?? $data['token'] ?? '');
@@ -80,6 +87,11 @@ final class Config
     }
 
     /**
+     * Accepts either bare strings (`"playing X"`) or objects
+     * (`{name, type, state}`) and normalises them. `type` is clamped to a valid
+     * Activity type (0-5) so a typo can't make {@see \Discord\Discord::updatePresence()}
+     * throw from inside the rotation timer.
+     *
      * @param mixed $raw
      *
      * @return list<array{name: string, type: int, state?: string}>
@@ -91,9 +103,10 @@ final class Config
             if (is_string($entry)) {
                 $out[] = ['name' => $entry, 'type' => 0];
             } elseif (is_array($entry) && isset($entry['name'])) {
+                $type = (int) ($entry['type'] ?? 0);
                 $out[] = [
                     'name' => (string) $entry['name'],
-                    'type' => (int) ($entry['type'] ?? 0),
+                    'type' => ($type >= 0 && $type <= 5) ? $type : 0,
                     'state' => (string) ($entry['state'] ?? 'online'),
                 ];
             }

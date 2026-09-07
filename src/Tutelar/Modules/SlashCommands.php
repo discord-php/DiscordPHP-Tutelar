@@ -21,12 +21,18 @@ use Discord\Parts\Interactions\Interaction;
 use Discord\Parts\OAuth\Application;
 use Discord\Parts\User\Member;
 use Discord\Repository\Interaction\GlobalCommandRepository;
+use Tutelar\Support\Text;
 use Tutelar\Tutelar;
 
 /**
  * Registers and handles Tutelar's global slash commands (`/whois`, `/invite`,
  * `/ping`). User- and guild-installable, usable in guilds, the bot's DMs and
- * group DMs; every reply is interaction-scoped.
+ * group DMs; every reply is ephemeral, and all three answer from cache so they
+ * respond well inside the interaction deadline.
+ *
+ * Command definitions are created once and then left alone (the
+ * `$repo->get('name', …)` guard in {@see define()}): edit a name or option and
+ * you must bump it by hand or clear the command, same as the sibling bots.
  *
  * Replaces the legacy `variable_functions.php` slash-command closures.
  *
@@ -87,6 +93,8 @@ final class SlashCommands implements Module
 
     private function whois(Tutelar $bot, Interaction $interaction): \React\Promise\PromiseInterface
     {
+        // The `user` option if given, else the caller. `$interaction->user`
+        // resolves in both guilds and DMs (it falls back to member->user).
         $opt = $interaction->data->options?->first();
         $targetId = ($opt?->value) ? (string) $opt->value : (string) $interaction->user->id;
 
@@ -96,10 +104,15 @@ final class SlashCommands implements Module
         $embed = (new Embed($bot))
             ->setColor(0xA7C5FD)
             ->setTitle('whois')
-            ->setAuthor($user?->displayname ?? "<@{$targetId}>", $user?->avatar)
+            ->setAuthor($user?->displayname ?? "User {$targetId}", $user?->avatar)
             ->addFieldValues('User', "<@{$targetId}>", true)
-            ->addFieldValues('ID', $targetId, true)
-            ->addFieldValues('Account created', '<t:' . ($user?->createdTimestamp() ?? 0) . ':R>', true);
+            ->addFieldValues('ID', $targetId, true);
+
+        // Only when the user is actually cached — otherwise createdTimestamp()
+        // would render "<t:0:R>" (1970).
+        if ($user !== null) {
+            $embed->addFieldValues('Account created', '<t:' . $user->createdTimestamp() . ':R>', true);
+        }
 
         if ($member instanceof Member) {
             $embed->addFieldValues('Joined', $member->joined_at ? '<t:' . $member->joined_at->timestamp . ':R>' : 'unknown', true);
@@ -108,7 +121,7 @@ final class SlashCommands implements Module
                 $roles[] = (string) $role;
             }
             if ($roles !== []) {
-                $embed->addFieldValues('Roles', EventLogger::trim(implode(' ', $roles), 1000));
+                $embed->addFieldValues('Roles', Text::clip(implode(' ', $roles), 1000));
             }
         }
 
@@ -118,6 +131,9 @@ final class SlashCommands implements Module
     private function invite(Tutelar $bot, Interaction $interaction): \React\Promise\PromiseInterface
     {
         $clientId = (string) ($bot->application->id ?? $bot->id);
+        // permissions=1101659827286: manage roles/channels/server, kick/ban,
+        // moderate members, manage messages/webhooks/events, view audit log,
+        // read/send/embed — the set the logging and onboarding modules need.
         $url = "https://discord.com/oauth2/authorize?client_id={$clientId}&scope=bot+applications.commands&permissions=1101659827286";
 
         return $interaction->respondWithMessage(Tutelar::reply(false)->setContent("Add Tutelar to a server: {$url}"), true);
