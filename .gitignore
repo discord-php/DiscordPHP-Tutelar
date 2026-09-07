@@ -15,3 +15,6 @@ phpunit.log
 .DS_Store
 .idea
 .vscode
+
+# phpacker build output
+/bin/build

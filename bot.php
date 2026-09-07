@@ -25,9 +25,42 @@ use Tutelar\Modules\SlashCommands;
 
 use function React\Promise\set_rejection_handler;
 
-require file_exists(__DIR__ . '/vendor/autoload.php')
-    ? __DIR__ . '/vendor/autoload.php'
-    : throw new \RuntimeException('Run `composer install` first.');
+/**
+ * The project base directory. Works when run as `php bot.php` from the repo, and
+ * when run as a phpacker/phpmicro binary (nested under
+ * `bin/build/<name>/<platform>/`) launched directly or from a shortcut, from any
+ * working directory: walk up from the real executable path, then the working
+ * directory, to the first ancestor with `vendor/autoload.php`, a `.env`, or a
+ * `config.json`.
+ */
+$baseDir = (static function (): string {
+    $seen = [];
+    foreach ([\Phar::running(false) ?: null, __FILE__, \getcwd() ?: null] as $start) {
+        if ($start === null) {
+            continue;
+        }
+        $dir = \is_dir($start) ? $start : \dirname((string) \preg_replace('#^phar://#', '', $start));
+        for ($i = 0; $i < 12; $i++) {
+            if (isset($seen[$dir])) {
+                break;
+            }
+            $seen[$dir] = true;
+            if (\is_file($dir . '/vendor/autoload.php') || \is_file($dir . '/.env') || \is_file($dir . '/config.json')) {
+                return $dir;
+            }
+            if (($up = \dirname($dir)) === $dir) {
+                break;
+            }
+            $dir = $up;
+        }
+    }
+
+    return \getcwd() ?: __DIR__;
+})();
+
+require is_file(__DIR__ . '/vendor/autoload.php') ? __DIR__ . '/vendor/autoload.php'
+    : (is_file($baseDir . '/vendor/autoload.php') ? $baseDir . '/vendor/autoload.php'
+    : throw new \RuntimeException('Composer autoloader not found. Run `composer install`, or keep the binary inside the project directory.'));
 
 /**
  * Minimal `KEY=value` .env loader (no dependency). The real environment wins.
@@ -48,7 +81,7 @@ require file_exists(__DIR__ . '/vendor/autoload.php')
             $_ENV[$name] = $value;
         }
     }
-})(__DIR__ . '/.env');
+})($baseDir . '/.env');
 
 $logger = new Logger('tutelar', [
     (new StreamHandler('php://stdout', Level::Info))->setFormatter(new LineFormatter(null, null, true, true)),
@@ -58,8 +91,8 @@ set_rejection_handler(static function (\Throwable $e) use ($logger): void {
     $logger->warning('Unhandled rejection: ' . $e->getMessage() . ' [' . $e->getFile() . ':' . $e->getLine() . ']');
 });
 
-$configPath = getenv('TUTELAR_CONFIG') ?: (__DIR__ . '/config.json');
-$statePath = getenv('TUTELAR_STATE_PATH') ?: (__DIR__ . '/var/state.json');
+$configPath = getenv('TUTELAR_CONFIG') ?: ($baseDir . '/config.json');
+$statePath = getenv('TUTELAR_STATE_PATH') ?: ($baseDir . '/var/state.json');
 
 $config = Config::load($configPath, $_ENV + getenv());
 $store = new Store($statePath);

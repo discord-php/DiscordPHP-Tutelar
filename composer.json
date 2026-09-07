@@ -16,13 +16,20 @@
     "require-dev": {
         "friendsofphp/php-cs-fixer": "^3",
         "phpunit/phpunit": "^9.4.4",
-        "laravel/pint": "^1.21"
+        "laravel/pint": "^1.21",
+        "phpacker/phpacker": "^0.6.4"
     },
     "scripts": {
-        "pint": ["./vendor/bin/pint --config ./pint.json ./src"],
+        "pint": [
+            "./vendor/bin/pint --config ./pint.json ./src"
+        ],
         "cs": "php-cs-fixer fix",
         "cs-unsupported": "php-cs-fixer fix --allow-unsupported-php-version yes",
-        "unit": "phpunit"
+        "unit": "phpunit",
+        "phpacker": [
+            "@phpacker:bot"
+        ],
+        "phpacker:bot": "phpacker build --src=bot.php --dest=bin/build/bot"
     },
     "minimum-stability": "dev",
     "prefer-stable": true,
@@ -51,5 +58,9 @@
         "psr-4": {
             "Tutelar\\Tests\\": "tests/"
         }
+    },
+    "scripts-descriptions": {
+        "phpacker": "Build a standalone binary for bot.php (all platforms).",
+        "phpacker:bot": "Build a standalone binary for bot.php into bin/build/bot."
     }
 }
