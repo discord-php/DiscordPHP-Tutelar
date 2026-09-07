@@ -1,0 +1,55 @@
+{
+    "name": "vzgcoders/discordphp-tutelar",
+    "description": "Tutelar — a Discord community-management bot (event logging, native onboarding / Channels & Roles management, rotating presence, per-guild config, SS13 hooks), rebuilt on DiscordPHP with a PSR-4 module architecture.",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Valithor Obsidion",
+            "email": "valithor@discordphp.org"
+        }
+    ],
+    "require": {
+        "php": "^8.3",
+        "team-reflex/discord-php": "dev-master",
+        "discord-php/http": "dev-master as 10.1.7"
+    },
+    "require-dev": {
+        "friendsofphp/php-cs-fixer": "^3",
+        "phpunit/phpunit": "^9.4.4",
+        "laravel/pint": "^1.21"
+    },
+    "scripts": {
+        "pint": ["./vendor/bin/pint --config ./pint.json ./src"],
+        "cs": "php-cs-fixer fix",
+        "cs-unsupported": "php-cs-fixer fix --allow-unsupported-php-version yes",
+        "unit": "phpunit"
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true,
+    "repositories": [
+        {
+            "type": "path",
+            "url": "../DiscordPHP",
+            "options": {
+                "symlink": true
+            }
+        },
+        {
+            "type": "path",
+            "url": "../DiscordPHP-Http",
+            "options": {
+                "symlink": true
+            }
+        }
+    ],
+    "autoload": {
+        "psr-4": {
+            "Tutelar\\": "src/Tutelar/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Tutelar\\Tests\\": "tests/"
+        }
+    }
+}

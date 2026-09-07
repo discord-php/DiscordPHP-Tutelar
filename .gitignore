@@ -1,0 +1,17 @@
+# secrets & runtime state
+.env
+.env.*
+!.env.example
+/var/*
+!/var/.gitkeep
+
+# tooling
+/vendor
+composer.lock
+.php-cs-fixer.cache
+.phpunit.cache
+phpunit.log
+/coverage
+.DS_Store
+.idea
+.vscode
