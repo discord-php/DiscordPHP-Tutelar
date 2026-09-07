@@ -50,7 +50,7 @@ Discord's own UI, which is the point.
 Tutelar (MessageCommandClient)
   ├─ Config   (readonly, from config.json + env)
   ├─ Store    (runtime per-guild overrides + module scratch)
-  └─ modules: [ PresenceRotator, SlashCommands, Onboarding, EventLogger, … ]
+  └─ modules: [ PresenceRotator, SlashCommands, Onboarding, Moderation, EventLogger, … ]
 ```
 
 A module is anything implementing [`Module`](src/Tutelar/Modules/Module.php)
@@ -65,8 +65,31 @@ Add one in `bot.php`:
 $bot->addModule(new PresenceRotator())
     ->addModule(new SlashCommands())
     ->addModule(new Onboarding())
+    ->addModule(new Moderation(new CaseBook($baseDir . '/var/moderation.json')))
     ->addModule(new EventLogger());
 ```
+
+### Moderation
+
+Everything a bot-run server needs that Discord's own UI doesn't give a bot —
+using only the API. One `/mod` command, guild-only, gated on a moderator
+permission (`kick` / `ban` / `timeout` / `manage server`) **and** a role
+hierarchy check (you can't action yourself, a bot, the owner, or anyone whose
+top role isn't below yours).
+
+| Discord gives you | Tutelar adds |
+| --- | --- |
+| kick / ban / unban / timeout | …and a numbered **case** for each, posted to `modlog` |
+| a 90-day, unqueryable audit log | `/mod case <n>`, `/mod modlogs @user`, `/mod reason <n>` — a durable case book in `var/moderation.json` |
+| — (no warning concept) | `/mod warn`, `/mod warnings`, `/mod delwarn`, with **escalation**: 3 → 1h timeout, 5 → 1d, 7 → kick, 10 → ban |
+| — (no scheduled unban) | `/mod ban … duration:7d` and a 30-second sweep that lifts it and closes the case |
+| — (no private notes) | `/mod note @user text` |
+| bulk delete (all-or-nothing, ≤100, <14 days) | `/mod purge count [user] [contains] [bots]` — filtered client-side, old messages skipped |
+| manual permission-overwrite editing | `/mod lock` / `/mod unlock` — records and restores the prior `send_messages` state |
+| slowmode in channel settings | `/mod slowmode <seconds>` |
+| a "report" that goes to Discord Trust & Safety | a **Report to mods** message command that posts to *this server's* `modlog` |
+
+Set `guilds.<id>.channels.modlog` in `config.json` (it falls back to `log`).
 
 ## Setup
 
@@ -125,17 +148,20 @@ method carries a `@covers`.
 ## Ported from the legacy bot — and still to come
 
 Done: rotating presence, per-guild channel/role config, event logging,
-`/whois` · `/invite` · `/ping`, native onboarding management.
+`/whois` · `/invite` · `/ping`, native onboarding management, and the full
+`Moderation` module (see above).
 
-Planned as further modules (kept out of this first cut deliberately):
+Planned as further modules (kept out of this cut deliberately):
 
+- **Auto-moderation** — a layer over Discord AutoMod: invite-link filter, join-rate
+  raid gate, new-account gate. (The legacy bot's word-list ban system lives here.)
 - **SS13 integration** — `discord2ckey` verifier link, `/ckey`, the verifier
   HTTP endpoint.
 - **WebAPI** — the legacy `webapi.php` surface, as a module owning its own
   `React\Http` server.
 - **Twitch relay** — TwitchPHP bridge (was commented out in the legacy bot).
 - **Tiered `!s` message commands** + a per-guild config command to replace the
-  hand-edited templates.
+  hand-edited templates and reach the `Store` setters at runtime.
 - **MySQL/PDO layer** — only if a module actually needs relational storage; the
   JSON store covers everything so far.
 

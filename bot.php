@@ -18,7 +18,9 @@ use Monolog\Formatter\LineFormatter;
 use Monolog\Handler\StreamHandler;
 use Monolog\Level;
 use Monolog\Logger;
+use Tutelar\Moderation\CaseBook;
 use Tutelar\Modules\EventLogger;
+use Tutelar\Modules\Moderation;
 use Tutelar\Modules\Onboarding;
 use Tutelar\Modules\PresenceRotator;
 use Tutelar\Modules\SlashCommands;
@@ -115,6 +117,7 @@ $bot
     ->addModule(new PresenceRotator())
     ->addModule(new SlashCommands())
     ->addModule(new Onboarding())
+    ->addModule(new Moderation(new CaseBook(getenv('TUTELAR_MODERATION_PATH') ?: ($baseDir . '/var/moderation.json'))))
     ->addModule(new EventLogger());
 
 $bot->run();
