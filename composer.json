@@ -17,7 +17,8 @@
         "friendsofphp/php-cs-fixer": "^3",
         "phpunit/phpunit": "^9.4.4",
         "laravel/pint": "^1.21",
-        "phpacker/phpacker": "^0.6.4"
+        "phpacker/phpacker": "^0.6.4",
+        "symfony/console": "^7.4"
     },
     "scripts": {
         "pint": [
