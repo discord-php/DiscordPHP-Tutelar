@@ -18,3 +18,8 @@ phpunit.log
 
 # phpacker build output
 /bin/build
+/build/
+/.phpdoc/
+/tools/
+/phive.xml
+/.phive/
