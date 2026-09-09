@@ -14,12 +14,14 @@ declare(strict_types=1);
 namespace Tutelar\Modules;
 
 use Discord\Builders\CommandBuilder;
+use Discord\Parts\Channel\Channel;
 use Discord\Parts\Guild\Guild;
 use Discord\Parts\Interactions\Command\Choice;
 use Discord\Parts\Interactions\Command\Command;
 use Discord\Parts\Interactions\Command\Option;
 use Discord\Parts\Interactions\Interaction;
 use Discord\Parts\OAuth\Application;
+use Discord\Parts\Permissions\RolePermission;
 use Discord\Repository\Interaction\GlobalCommandRepository;
 use React\Promise\PromiseInterface;
 use Tutelar\GuildConfig;
@@ -163,10 +165,17 @@ final class Configuration implements Module
 
         $bot->getStore()->setGuildChannel($guild->id, $setting, $channelId);
 
-        return $interaction->respondWithMessage(
-            Tutelar::reply(false)->setContent(sprintf('✅ **%s** is now <#%s>.', self::SETTINGS[$setting]['label'], $channelId)),
-            true,
-        );
+        $line = sprintf('✅ **%s** is now <#%s>.', self::SETTINGS[$setting]['label'], $channelId);
+
+        // Warn now if the bot can't actually post there — otherwise the failure
+        // only shows up later as a silently-dropped log / case / report.
+        $channel = $guild->channels->get('id', $channelId);
+        $missing = $channel instanceof Channel ? self::missingPostPerms($channel->getBotPermissions()) : [];
+        if ($missing !== []) {
+            $line .= "\n⚠️ I can't post there yet — grant me **" . implode('**, **', $missing) . "** in that channel.";
+        }
+
+        return $interaction->respondWithMessage(Tutelar::reply(false)->setContent($line), true);
     }
 
     private function unset(Tutelar $bot, Interaction $interaction, Guild $guild, string $setting): PromiseInterface
@@ -195,6 +204,53 @@ final class Configuration implements Module
             Tutelar::reply(false)->setContent('♻️ Cleared every runtime override for this server — back to the `config.json` defaults.'),
             true,
         );
+    }
+
+    /**
+     * The permissions the bot must hold in a target channel to deliver logs /
+     * cases / reports there, minus whatever `$perms` already grants. `null`
+     * perms (couldn't resolve the bot member) → assume fine, so a cold cache
+     * doesn't produce a false warning. Pure.
+     *
+     * @return list<string> human labels of the missing permissions
+     */
+    public static function missingPostPerms(?RolePermission $perms): array
+    {
+        if ($perms === null) {
+            return [];
+        }
+
+        return self::missingFrom((bool) ($perms->administrator ?? false), [
+            'view_channel' => (bool) ($perms->view_channel ?? false),
+            'send_messages' => (bool) ($perms->send_messages ?? false),
+            'embed_links' => (bool) ($perms->embed_links ?? false),
+        ]);
+    }
+
+    /**
+     * Pure core of {@see missingPostPerms()}: given whether the bot has
+     * Administrator and a `flag => held?` map, the human labels of the
+     * post-a-message permissions it still lacks.
+     *
+     * @param array<string, bool> $held
+     *
+     * @return list<string>
+     */
+    public static function missingFrom(bool $admin, array $held): array
+    {
+        if ($admin) {
+            return [];
+        }
+
+        $labels = ['view_channel' => 'View Channel', 'send_messages' => 'Send Messages', 'embed_links' => 'Embed Links'];
+        $missing = [];
+        foreach ($labels as $flag => $label) {
+            if (empty($held[$flag])) {
+                $missing[] = $label;
+            }
+        }
+
+        return $missing;
     }
 
     /**

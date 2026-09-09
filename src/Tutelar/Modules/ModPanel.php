@@ -402,6 +402,14 @@ final class ModPanel implements Module
             return $interaction->respondWithMessage(Tutelar::reply(false)->setContent('The configured log channel is not reachable.'), true);
         }
 
+        $missing = Configuration::missingPostPerms($channel->getBotPermissions());
+        if ($missing !== []) {
+            return $interaction->respondWithMessage(
+                Tutelar::reply(false)->setContent("⚠️ I can't deliver reports right now — an admin needs to grant me **" . implode('**, **', $missing) . "** in <#{$logId}> (or set a different channel with `/config set`)."),
+                true,
+            );
+        }
+
         $panel = $this->reportPanel([
             'guildId' => (string) $guild->id,
             'authorId' => $authorId,
@@ -412,12 +420,21 @@ final class ModPanel implements Module
             'status' => null,
         ]);
 
-        // Ack the reporter inside the 3s deadline first, then post the card —
-        // a slow log-channel write must not strand the interaction.
-        $ack = $interaction->respondWithMessage(Tutelar::reply(false)->setContent('✅ Sent to the mods. Thanks for the report.'), true);
-        $channel->sendMessage($panel)->then(null, static fn (\Throwable $e) => $bot->logger->warning('[mod-panel] report card post failed: ' . $e->getMessage()));
+        // Defer (15-min window), post the card, then report the real outcome —
+        // never tell the reporter "sent" when the write actually failed.
+        return $interaction->acknowledgeWithResponse(true)->then(
+            fn () => $channel->sendMessage($panel)->then(
+                fn () => $interaction->updateOriginalResponse(Tutelar::reply(false)->setContent('✅ Sent to the mods. Thanks for the report.')),
+                function (\Throwable $e) use ($bot, $interaction, $logId): PromiseInterface {
+                    $bot->logger->warning('[mod-panel] report card post failed: ' . $e->getMessage());
+                    $hint = str_contains($e->getMessage(), '50001') || str_contains($e->getMessage(), 'Missing Access')
+                        ? "I don't have access to <#{$logId}> — an admin needs to grant me **View Channel** + **Send Messages** + **Embed Links** there (or set another channel with `/config set`)."
+                        : Text::clip($e->getMessage(), 200);
 
-        return $ack;
+                    return $interaction->updateOriginalResponse(Tutelar::reply(false)->setContent("⚠️ Couldn't deliver the report — {$hint}"));
+                },
+            ),
+        );
     }
 
     /**

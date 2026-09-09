@@ -54,6 +54,29 @@ final class ConfigurationTest extends TestCase
         $this->assertStringNotContainsString('from-file', $summary);
     }
 
+    public function testMissingFromNamesEveryPostPermissionTheBotLacks(): void
+    {
+        $this->assertSame(
+            ['View Channel', 'Send Messages', 'Embed Links'],
+            Configuration::missingFrom(false, []),
+        );
+        $this->assertSame(
+            ['Embed Links'],
+            Configuration::missingFrom(false, ['view_channel' => true, 'send_messages' => true]),
+        );
+        $this->assertSame([], Configuration::missingFrom(false, ['view_channel' => true, 'send_messages' => true, 'embed_links' => true]));
+    }
+
+    public function testMissingFromShortCircuitsOnAdministrator(): void
+    {
+        $this->assertSame([], Configuration::missingFrom(true, []));
+    }
+
+    public function testMissingPostPermsTreatsNullAsFineSoAColdCacheDoesNotFalseWarn(): void
+    {
+        $this->assertSame([], Configuration::missingPostPerms(null));
+    }
+
     public function testEverySettingKeyHasALabelAndBlurb(): void
     {
         foreach (Configuration::SETTINGS as $key => $meta) {
