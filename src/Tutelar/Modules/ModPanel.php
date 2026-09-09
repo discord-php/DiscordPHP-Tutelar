@@ -175,7 +175,7 @@ final class ModPanel implements Module
 
         $lines = ["## Moderating <@{$targetId}>", "ID `{$targetId}`"];
         if ($user !== null) {
-            $lines[] = 'Account created <t:' . $user->createdTimestamp() . ':R>';
+            $lines[] = 'Account created <t:' . (int) $user->createdTimestamp() . ':R>';
         }
         if ($member instanceof Member) {
             $lines[] = 'Joined ' . ($member->joined_at ? '<t:' . $member->joined_at->timestamp . ':R>' : 'unknown');

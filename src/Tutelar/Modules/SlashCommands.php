@@ -111,7 +111,7 @@ final class SlashCommands implements Module
         // Only when the user is actually cached — otherwise createdTimestamp()
         // would render "<t:0:R>" (1970).
         if ($user !== null) {
-            $embed->addFieldValues(...Text::field('Account created', '<t:' . $user->createdTimestamp() . ':R>', true));
+            $embed->addFieldValues(...Text::field('Account created', '<t:' . (int) $user->createdTimestamp() . ':R>', true));
         }
 
         if ($member instanceof Member) {

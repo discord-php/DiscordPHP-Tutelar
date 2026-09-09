@@ -87,7 +87,7 @@ final class EventLogger implements Module
             $this->send($bot, $first->guild_id ?? null, $embed);
         });
 
-        $bot->on(Event::GUILD_MEMBER_ADD, fn (Member $m) => $this->send($bot, $m->guild_id, $this->userEmbed($bot, $m->user, 'Member joined')?->addFieldValues(...Text::field('Account created', '<t:' . $m->user->createdTimestamp() . ':R>', true))));
+        $bot->on(Event::GUILD_MEMBER_ADD, fn (Member $m) => $this->send($bot, $m->guild_id, $this->userEmbed($bot, $m->user, 'Member joined')?->addFieldValues(...Text::field('Account created', '<t:' . (int) $m->user->createdTimestamp() . ':R>', true))));
 
         $bot->on(Event::GUILD_MEMBER_REMOVE, fn (Member $m) => $this->send($bot, $m->guild_id, $this->userEmbed($bot, $m->user, 'Member left')));
 
