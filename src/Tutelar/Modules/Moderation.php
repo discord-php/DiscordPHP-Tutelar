@@ -99,8 +99,11 @@ final class Moderation implements Module
     {
         if ($repo->get('name', 'Report to mods') === null) {
             CommandBuilder::new()
-                ->setName('Report to mods')
+                // setType() must precede setName(): setName() runs the
+                // CHAT_INPUT name regex (no spaces / capitals) until the type
+                // says otherwise, and this is a MESSAGE context-menu entry.
                 ->setType(Command::MESSAGE)
+                ->setName('Report to mods')
                 ->setContext([Interaction::CONTEXT_TYPE_GUILD])
                 ->addIntegrationType(Application::INTEGRATION_TYPE_GUILD_INSTALL)
                 ->create($repo)
