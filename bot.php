@@ -19,7 +19,9 @@ use Monolog\Handler\StreamHandler;
 use Monolog\Level;
 use Monolog\Logger;
 use Tutelar\Moderation\CaseBook;
+use Tutelar\Modules\Configuration;
 use Tutelar\Modules\EventLogger;
+use Tutelar\Modules\Help;
 use Tutelar\Modules\Moderation;
 use Tutelar\Modules\Onboarding;
 use Tutelar\Modules\PresenceRotator;
@@ -116,6 +118,8 @@ $bot = new Tutelar($config, $store, [
 $bot
     ->addModule(new PresenceRotator())
     ->addModule(new SlashCommands())
+    ->addModule(new Help())
+    ->addModule(new Configuration())
     ->addModule(new Onboarding())
     ->addModule(new Moderation(new CaseBook(getenv('TUTELAR_MODERATION_PATH') ?: ($baseDir . '/var/moderation.json'))))
     ->addModule(new EventLogger());

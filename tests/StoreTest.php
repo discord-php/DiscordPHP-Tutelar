@@ -79,6 +79,28 @@ final class StoreTest extends TestCase
         $this->assertSame('file-rules', $merged->channel('rules'), 'file default survives');
     }
 
+    public function testClearGuildChannelDropsOneNameAndFallsBackToTheFileDefault(): void
+    {
+        $config = $this->config([
+            'guilds' => ['999' => ['channels' => ['log' => 'file-log']]],
+        ]);
+
+        $store = new Store($this->path);
+        $store->setGuildChannel('999', 'log', 'runtime-log');
+        $store->setGuildChannel('999', 'modlog', 'runtime-modlog');
+
+        $store->clearGuildChannel('999', 'log');
+
+        $merged = (new Store($this->path))->guildConfig($config, '999');
+        $this->assertSame('file-log', $merged->channel('log'), 'falls back to the file default');
+        $this->assertSame('runtime-modlog', $merged->channel('modlog'), 'the other override is untouched');
+
+        // Clearing something that was never set is a no-op, not an error.
+        $store->clearGuildChannel('999', 'never-set');
+        $store->clearGuildRole('404', 'nope');
+        $this->assertTrue(true);
+    }
+
     public function testForgetGuildDropsOnlyThatGuild(): void
     {
         $store = new Store($this->path);

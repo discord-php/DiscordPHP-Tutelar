@@ -21,9 +21,9 @@ namespace Tutelar;
  * Replaces the legacy `VarSave()` / `VarLoad()` and the in-memory
  * `$tutelar->discord_config` array.
  *
- * The `setGuild*` / `forgetGuild` mutators are the write side of a planned
- * `/config` command; today the overrides they produce are more usually written
- * straight into `config.json` (see the README).
+ * The `setGuild*` / `clearGuild*` / `forgetGuild` mutators are the write side of
+ * the `/config` command ({@see \Tutelar\Modules\Configuration}); `config.json` still
+ * supplies the per-guild *defaults* these overrides layer on top of.
  *
  * @since 2.0.0
  */
@@ -62,6 +62,29 @@ final class Store
     public function setGuildRole(int|string $guildId, string $name, string $roleId): void
     {
         $this->data['guilds'][(string) $guildId]['roles'][$name] = $roleId;
+        $this->save();
+    }
+
+    /**
+     * Drops one named channel override for a guild (the guild falls back to its
+     * `config.json` default for that name, if any). No-op when nothing is set.
+     */
+    public function clearGuildChannel(int|string $guildId, string $name): void
+    {
+        if (! isset($this->data['guilds'][(string) $guildId]['channels'][$name])) {
+            return;
+        }
+        unset($this->data['guilds'][(string) $guildId]['channels'][$name]);
+        $this->save();
+    }
+
+    /** Drops one named role override for a guild. No-op when nothing is set. */
+    public function clearGuildRole(int|string $guildId, string $name): void
+    {
+        if (! isset($this->data['guilds'][(string) $guildId]['roles'][$name])) {
+            return;
+        }
+        unset($this->data['guilds'][(string) $guildId]['roles'][$name]);
         $this->save();
     }
 
