@@ -735,10 +735,10 @@ final class Moderation implements Module
             ->setColor(self::COLOUR[$case['type']] ?? 0xA7C5FD)
             ->setTitle("Case #{$case['id']} · " . strtoupper((string) $case['type']))
             ->setDescription(Text::clip((string) $case['reason'], 2000))
-            ->addFieldValues('Target', '<@' . $case['user'] . '>', true)
-            ->addFieldValues('Moderator', '<@' . $case['mod'] . '>', true)
-            ->addFieldValues('When', '<t:' . (int) $case['at'] . ':F>', true)
-            ->addFieldValues('Expires', $case['expires'] ? '<t:' . (int) $case['expires'] . ':R>' : '—', true);
+            ->addFieldValues(...Text::field('Target', '<@' . $case['user'] . '>', true))
+            ->addFieldValues(...Text::field('Moderator', '<@' . $case['mod'] . '>', true))
+            ->addFieldValues(...Text::field('When', '<t:' . (int) $case['at'] . ':F>', true))
+            ->addFieldValues(...Text::field('Expires', $case['expires'] ? '<t:' . (int) $case['expires'] . ':R>' : '—', true));
     }
 
     private function postCase(Tutelar $bot, Guild $guild, array $case): void

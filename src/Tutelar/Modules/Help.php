@@ -21,6 +21,7 @@ use Discord\Parts\OAuth\Application;
 use Discord\Parts\User\Member;
 use React\Promise\PromiseInterface;
 use Tutelar\Support\Permissions;
+use Tutelar\Support\Text;
 use Tutelar\Tutelar;
 
 /**
@@ -139,11 +140,11 @@ final class Help implements Module
                 : 'The commands available to you on this server. Options in `[brackets]` are optional.');
 
         foreach (self::fields(self::sectionsFor($isModerator, $isManager)) as [$name, $value]) {
-            $embed->addFieldValues($name, $value);
+            $embed->addFieldValues(...Text::field($name, $value));
         }
 
         if ($member !== null && ! $isModerator && ! $isManager) {
-            $embed->addFieldValues('Want more?', 'Moderation and configuration commands appear here once you have a role with Kick / Ban / Timeout or Manage Server.');
+            $embed->addFieldValues(...Text::field('Want more?', 'Moderation and configuration commands appear here once you have a role with Kick / Ban / Timeout or Manage Server.'));
         }
 
         return $interaction->respondWithMessage(Tutelar::reply(false)->addEmbed($embed), true);

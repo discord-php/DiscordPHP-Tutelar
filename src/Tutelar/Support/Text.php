@@ -40,4 +40,18 @@ final class Text
             ? mb_substr($text, 0, max(0, $limit - 1)) . '…'
             : $text;
     }
+
+    /**
+     * A `[name, value, inline]` triple for {@see \Discord\Parts\Embed\Embed::addFieldValues()},
+     * pre-clipped to Discord's field limits (name 256, value 1024). DiscordPHP's
+     * Embed builder documents those limits but does NOT enforce them — it only
+     * checks the 25-field count — so a long dynamic value otherwise reaches
+     * Discord and comes back `50035`. Spread it: `$e->addFieldValues(...Text::field($n, $v))`.
+     *
+     * @return array{0: string, 1: string, 2: bool}
+     */
+    public static function field(string $name, string $value, bool $inline = false): array
+    {
+        return [self::clip($name, 256), self::clip($value, 1024), $inline];
+    }
 }

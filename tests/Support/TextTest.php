@@ -50,4 +50,21 @@ final class TextTest extends TestCase
         // 5 codepoints, well under the limit, so it must survive intact.
         $this->assertSame('café☕', Text::clip('café☕', 10));
     }
+
+    public function testFieldReturnsAnInlineTripleClippedToDiscordsEmbedLimits(): void
+    {
+        $this->assertSame(['Name', 'value', false], Text::field('Name', 'value'));
+        $this->assertSame(['Name', 'value', true], Text::field('Name', 'value', true));
+
+        [$name, $value] = Text::field(str_repeat('n', 400), str_repeat('v', 4000));
+        $this->assertSame(256, mb_strlen($name));
+        $this->assertSame(1024, mb_strlen($value));
+        $this->assertStringEndsWith('…', $name);
+        $this->assertStringEndsWith('…', $value);
+    }
+
+    public function testFieldPlaceholdersAnEmptyValueSoDiscordAcceptsIt(): void
+    {
+        $this->assertSame(['Name', '*(empty)*', false], Text::field('Name', ''));
+    }
 }

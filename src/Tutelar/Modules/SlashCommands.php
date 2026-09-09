@@ -50,15 +50,15 @@ final class SlashCommands implements Module
 
     public function boot(Tutelar $bot): void
     {
-        $bot->application->commands->freshen()->then(fn(GlobalCommandRepository $repo) => $this->define($bot, $repo));
+        $bot->application->commands->freshen()->then(fn (GlobalCommandRepository $repo) => $this->define($bot, $repo));
 
         $bot->on('heartbeat-ack', function ($time): void {
             $this->lastLatencyMs = (float) $time;
         });
 
-        $bot->listenCommand('whois', fn(Interaction $i) => $this->whois($bot, $i));
-        $bot->listenCommand('invite', fn(Interaction $i) => $this->invite($bot, $i));
-        $bot->listenCommand('ping', fn(Interaction $i) => $i->respondWithMessage(
+        $bot->listenCommand('whois', fn (Interaction $i) => $this->whois($bot, $i));
+        $bot->listenCommand('invite', fn (Interaction $i) => $this->invite($bot, $i));
+        $bot->listenCommand('ping', fn (Interaction $i) => $i->respondWithMessage(
             Tutelar::reply(false)->setContent($this->lastLatencyMs === null
                 ? '🏓 pong (no heartbeat sample yet)'
                 : sprintf('🏓 pong — gateway round-trip ~%dms', (int) round($this->lastLatencyMs))),
@@ -105,23 +105,23 @@ final class SlashCommands implements Module
             ->setColor(0xA7C5FD)
             ->setTitle('whois')
             ->setAuthor($user?->displayname ?? "User {$targetId}", $user?->avatar)
-            ->addFieldValues('User', "<@{$targetId}>", true)
-            ->addFieldValues('ID', $targetId, true);
+            ->addFieldValues(...Text::field('User', "<@{$targetId}>", true))
+            ->addFieldValues(...Text::field('ID', $targetId, true));
 
         // Only when the user is actually cached — otherwise createdTimestamp()
         // would render "<t:0:R>" (1970).
         if ($user !== null) {
-            $embed->addFieldValues('Account created', '<t:' . $user->createdTimestamp() . ':R>', true);
+            $embed->addFieldValues(...Text::field('Account created', '<t:' . $user->createdTimestamp() . ':R>', true));
         }
 
         if ($member instanceof Member) {
-            $embed->addFieldValues('Joined', $member->joined_at ? '<t:' . $member->joined_at->timestamp . ':R>' : 'unknown', true);
+            $embed->addFieldValues(...Text::field('Joined', $member->joined_at ? '<t:' . $member->joined_at->timestamp . ':R>' : 'unknown', true));
             $roles = [];
             foreach ($member->roles as $role) {
                 $roles[] = (string) $role;
             }
             if ($roles !== []) {
-                $embed->addFieldValues('Roles', Text::clip(implode(' ', $roles), 1000));
+                $embed->addFieldValues(...Text::field('Roles', implode(' ', $roles)));
             }
         }
 
