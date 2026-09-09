@@ -131,10 +131,16 @@ final class SlashCommands implements Module
     private function invite(Tutelar $bot, Interaction $interaction): \React\Promise\PromiseInterface
     {
         $clientId = (string) ($bot->application->id ?? $bot->id);
-        // permissions=1101659827286: manage roles/channels/server, kick/ban,
-        // moderate members, manage messages/webhooks/events, view audit log,
-        // read/send/embed — the set the logging and onboarding modules need.
-        $url = "https://discord.com/oauth2/authorize?client_id={$clientId}&scope=bot+applications.commands&permissions=1101659827286";
+        // permissions=1101927640118 — the exact set the modules use, no
+        // Administrator:
+        //   kick_members / ban_members / moderate_members  → /mod kick|ban|timeout
+        //   manage_channels                                → /mod slowmode
+        //   manage_roles                                   → /mod lock|unlock (channel overwrites)
+        //   manage_messages + read_message_history         → /mod purge
+        //   manage_guild                                   → /onboarding enable|disable
+        //   view_channel / send_messages / embed_links     → event-logger + replies
+        //   use_application_commands                       → slash + context-menu commands
+        $url = "https://discord.com/oauth2/authorize?client_id={$clientId}&scope=bot+applications.commands&permissions=1101927640118";
 
         return $interaction->respondWithMessage(Tutelar::reply(false)->setContent("Add Tutelar to a server: {$url}"), true);
     }
