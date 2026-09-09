@@ -62,4 +62,33 @@ final class HelpTest extends TestCase
             $this->assertStringContainsString('`/', implode("\n", $section['lines']), $section['title'] . ' names no command');
         }
     }
+
+    public function testEveryRenderedFieldFitsTheDiscordEmbedLimit(): void
+    {
+        foreach (Help::fields(Help::sectionsFor(true, true)) as [$name, $value]) {
+            $this->assertLessThanOrEqual(256, mb_strlen($name), "field name too long: {$name}");
+            $this->assertLessThanOrEqual(1024, mb_strlen($value), "field value over 1024: {$name}");
+            $this->assertNotSame('', $value);
+        }
+    }
+
+    public function testALongSectionIsSplitAcrossContinuationFields(): void
+    {
+        $long = ['tier' => 'everyone', 'title' => 'Big', 'lines' => array_fill(0, 40, str_repeat('x', 80))];
+
+        $fields = Help::fields([$long]);
+
+        $this->assertGreaterThan(1, count($fields), 'a 40-line section must span more than one field');
+        $this->assertSame('Big', $fields[0][0]);
+        $this->assertSame('Big (cont.)', $fields[1][0]);
+        // Every line survives the packing (just redistributed across fields).
+        $lines = explode("\n", implode("\n", array_column($fields, 1)));
+        $this->assertCount(40, $lines, 'no line dropped or added');
+    }
+
+    public function testShortSectionsStayOneFieldEach(): void
+    {
+        $fields = Help::fields(Help::sectionsFor(false, false));
+        $this->assertSame([['Everyone', implode("\n", Help::SECTIONS[0]['lines'])]], $fields);
+    }
 }

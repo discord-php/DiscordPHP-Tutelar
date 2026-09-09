@@ -138,8 +138,8 @@ final class Help implements Module
                 ? 'You\'re in a DM, so this lists the commands that work anywhere. Run `/help` in a server to see its moderation and configuration commands (if you have the permissions).'
                 : 'The commands available to you on this server. Options in `[brackets]` are optional.');
 
-        foreach (self::sectionsFor($isModerator, $isManager) as $section) {
-            $embed->addFieldValues($section['title'], implode("\n", $section['lines']));
+        foreach (self::fields(self::sectionsFor($isModerator, $isManager)) as [$name, $value]) {
+            $embed->addFieldValues($name, $value);
         }
 
         if ($member !== null && ! $isModerator && ! $isManager) {
@@ -163,5 +163,49 @@ final class Help implements Module
             self::SECTIONS,
             static fn (array $s): bool => $allowed[$s['tier']] ?? false,
         ));
+    }
+
+    /** Discord embed field-value limit; a section longer than this is split. */
+    private const FIELD_LIMIT = 1024;
+
+    /**
+     * Turn sections into `[name, value]` embed fields, packing each section's
+     * lines into as few fields as fit under {@see FIELD_LIMIT} and naming the
+     * overflow `Title (cont.)`. Pure, so the packing is unit-tested. A single
+     * line longer than the limit is clipped (shouldn't happen in {@see SECTIONS}).
+     *
+     * @param list<array{tier: string, title: string, lines: list<string>}> $sections
+     *
+     * @return list<array{0: string, 1: string}>
+     */
+    public static function fields(array $sections): array
+    {
+        $fields = [];
+        foreach ($sections as $section) {
+            $chunk = '';
+            $part = 0;
+            $flush = static function () use (&$fields, &$chunk, &$part, $section): void {
+                if ($chunk === '') {
+                    return;
+                }
+                $fields[] = [$part === 0 ? $section['title'] : $section['title'] . ' (cont.)', $chunk];
+                $chunk = '';
+                $part++;
+            };
+
+            foreach ($section['lines'] as $line) {
+                $line = mb_strlen($line) > self::FIELD_LIMIT ? mb_substr($line, 0, self::FIELD_LIMIT - 1) . '…' : $line;
+                $candidate = $chunk === '' ? $line : $chunk . "\n" . $line;
+                if (mb_strlen($candidate) > self::FIELD_LIMIT) {
+                    $flush();
+                    $chunk = $line;
+                } else {
+                    $chunk = $candidate;
+                }
+            }
+            $flush();
+        }
+
+        return $fields;
     }
 }

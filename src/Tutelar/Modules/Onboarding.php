@@ -172,7 +172,7 @@ final class Onboarding implements Module
                 $embed->addFieldValues('…', sprintf('and %d more prompt(s) — open Server Settings → Onboarding.', count($prompts) - $shown));
                 break;
             }
-            $embed->addFieldValues($heading, $body);
+            $embed->addFieldValues(Text::clip($heading, 256), Text::clip($body, 1024));
             $shown++;
         }
 
