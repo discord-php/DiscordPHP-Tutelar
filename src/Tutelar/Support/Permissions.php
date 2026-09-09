@@ -31,25 +31,54 @@ final class Permissions
 
     /**
      * Does `$member` hold any of the `$any` permissions — server-wide, or in
-     * `$channel` when given? A null member, or a member whose permissions can't
-     * be resolved, counts as "no" (fail closed).
+     * `$channel` when given? A null member counts as "no" (fail closed).
+     *
+     * Resolution order, so a slash-command handler works even before the guild
+     * role cache is warm:
+     *   1. guild owner → yes (owners hold every permission implicitly);
+     *   2. `$member->permissions` — the effective bitset Discord ships **on the
+     *      interaction payload**, needing no cache;
+     *   3. `Member::getPermissions()` — computed from cached roles, for
+     *      non-interaction contexts.
+     * `administrator` in any of those implies every permission.
      *
      * @param list<string> $any    Permission names — see DiscordPHP's RolePermission.
      * @param Member|null  $member The member to check.
      */
     public static function memberHasAny(array $any, ?Member $member, ?Channel $channel = null): bool
     {
-        $held = $member?->getPermissions($channel);
+        if ($member === null) {
+            return false;
+        }
+
+        $guild = $member->guild;
+        if ($guild !== null && (string) $guild->owner_id === (string) $member->id) {
+            return true;
+        }
+
+        $held = $member->permissions ?? $member->getPermissions($channel);
         if ($held === null) {
             return false;
         }
 
-        $flags = [];
+        $flags = ['administrator' => ! empty($held->administrator)];
         foreach ($any as $perm) {
             $flags[$perm] = ! empty($held->{$perm});
         }
 
-        return self::anyGranted($any, $flags);
+        return self::grantsAny($any, $flags);
+    }
+
+    /**
+     * Pure form of the check with the `administrator`-implies-everything rule
+     * folded in: `administrator` in `$granted` wins regardless of `$any`.
+     *
+     * @param list<string>        $any
+     * @param array<string, bool> $granted permission name => held? (may include `administrator`)
+     */
+    public static function grantsAny(array $any, array $granted): bool
+    {
+        return ! empty($granted['administrator']) || self::anyGranted($any, $granted);
     }
 
     /**

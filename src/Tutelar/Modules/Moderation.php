@@ -16,7 +16,6 @@ namespace Tutelar\Modules;
 use Carbon\Carbon;
 use Discord\Builders\CommandBuilder;
 use Discord\Parts\Channel\Channel;
-use Discord\Parts\Channel\Message;
 use Discord\Parts\Embed\Embed;
 use Discord\Parts\Guild\Guild;
 use Discord\Parts\Guild\Role;
@@ -89,7 +88,6 @@ final class Moderation implements Module
         $bot->application->commands->freshen()->then(fn (GlobalCommandRepository $repo) => $this->define($bot, $repo));
 
         $bot->listenCommand('mod', fn (Interaction $i) => $this->route($bot, $i));
-        $bot->listenCommand('Report to mods', fn (Interaction $i) => $this->report($bot, $i));
 
         // Scheduled tempban / timeout expiry. Discord auto-lifts a member
         // timeout, but not a ban, and it never posts a "case closed" note.
@@ -100,19 +98,8 @@ final class Moderation implements Module
 
     private function define(Tutelar $bot, GlobalCommandRepository $repo): void
     {
-        if ($repo->get('name', 'Report to mods') === null) {
-            CommandBuilder::new()
-                // setType() must precede setName(): setName() runs the
-                // CHAT_INPUT name regex (no spaces / capitals) until the type
-                // says otherwise, and this is a MESSAGE context-menu entry.
-                ->setType(Command::MESSAGE)
-                ->setName('Report to mods')
-                ->setContext([Interaction::CONTEXT_TYPE_GUILD])
-                ->addIntegrationType(Application::INTEGRATION_TYPE_GUILD_INSTALL)
-                ->create($repo)
-                ->save('Report to mods command');
-        }
-
+        // The `Report to mods` message context-menu lives in {@see ModPanel}
+        // now — it posts an actionable panel, not just a notice.
         if ($repo->get('name', 'mod') !== null) {
             return;
         }
@@ -489,38 +476,6 @@ final class Moderation implements Module
             },
             fn (\Throwable $e) => $i->updateOriginalResponse(Tutelar::reply(false)->setContent("Couldn't unlock: {$e->getMessage()}")),
         );
-    }
-
-    // --- report-to-mods message command ----------------------------
-
-    private function report(Tutelar $bot, Interaction $interaction): PromiseInterface
-    {
-        $guild = $interaction->guild;
-        if (! $guild instanceof Guild) {
-            return $interaction->respondWithMessage(Tutelar::reply(false)->setContent('Server only.'), true);
-        }
-
-        $targetId = (string) ($interaction->data->target_id ?? '');
-        $message = $interaction->data->resolved?->messages?->get('id', $targetId);
-
-        $channelId = $bot->guild($guild->id)->channel('modlog') ?? $bot->guild($guild->id)->channel('log');
-        if ($channelId === null) {
-            return $interaction->respondWithMessage(Tutelar::reply(false)->setContent('This server has no `modlog` channel configured, so reports have nowhere to go.'), true);
-        }
-
-        $embed = (new Embed($bot))->setColor(0xE8B923)->setTitle('Message reported')
-            ->setDescription($message instanceof Message ? Text::clip((string) $message->content, 1500) : '*(message content unavailable)*')
-            ->addFieldValues('Reported by', "<@{$interaction->user->id}>", true)
-            ->addFieldValues('Author', $message instanceof Message ? "<@{$message->author?->id}>" : 'unknown', true)
-            ->addFieldValues('Channel', "<#{$interaction->channel_id}>", true);
-        if ($message instanceof Message && ($link = $message->link)) {
-            $embed->addFieldValues('Jump', "[message]({$link})", false);
-        }
-
-        return $bot->getChannel($channelId)?->sendMessage(Tutelar::reply(false)->addEmbed($embed))->then(
-            fn () => $interaction->respondWithMessage(Tutelar::reply(false)->setContent('✅ Sent to the mods. Thanks.'), true),
-            fn (\Throwable $e) => $interaction->respondWithMessage(Tutelar::reply(false)->setContent("Couldn't reach the mod channel: {$e->getMessage()}"), true),
-        ) ?? $interaction->respondWithMessage(Tutelar::reply(false)->setContent('Mod channel is not reachable.'), true);
     }
 
     // --- scheduled reversal sweep ---------------------------------

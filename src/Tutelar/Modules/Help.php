@@ -74,7 +74,7 @@ final class Help implements Module
                 '`/mod lock [channel] [reason]` · `/mod unlock [channel] [reason]` — stop / restore @everyone sending.',
                 '**Panel & context menus**',
                 '`/modpanel <user>` or right-click a member → Apps → **Moderate** — an interactive panel: warn / timeout / kick / ban / unban / history, all in one place.',
-                '`Report to mods` — right-click any message → Apps → report it to this server\'s mod channel.',
+                '`Report to mods` — any member: right-click a message → Apps → Report to mods. It posts a card to the log channel with Timeout / Kick / Ban / Dismiss buttons for the mod team.',
                 'Every action writes a numbered case to the mod-log channel (`/config set` → *Mod-log channel*).',
             ],
         ],

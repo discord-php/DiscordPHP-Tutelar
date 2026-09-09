@@ -22,6 +22,8 @@ use Discord\Builders\Components\Separator;
 use Discord\Builders\Components\TextDisplay;
 use Discord\Builders\Components\TextInput;
 use Discord\Builders\MessageBuilder;
+use Discord\Parts\Channel\Channel;
+use Discord\Parts\Channel\Message;
 use Discord\Parts\Channel\Message\AllowedMentions;
 use Discord\Parts\Guild\Guild;
 use Discord\Parts\Interactions\Command\Command;
@@ -51,11 +53,20 @@ use function React\Promise\resolve;
  * custom_ids and one `INTERACTION_CREATE` dispatcher routes every click, so a
  * self-refreshing panel never stacks listeners.
  *
+ * The same module also owns the **`Report to mods`** message context-menu: any
+ * member right-clicks a message → Apps → Report to mods, and Tutelar posts a
+ * V2 report card to the log channel with Timeout / Kick / Ban / Dismiss buttons
+ * (`mpr:<action>:<author>:<channel>:<message>`) the mod team acts on inline.
+ * Those buttons are on a persistent channel message, so the dispatcher — keyed
+ * only on the custom_id — keeps working across restarts.
+ *
  * @since 2.2.0
  */
 final class ModPanel implements Module
 {
     private const ACCENT = 0xA7C5FD;
+
+    private const REPORT_ACCENT = 0xE8B923;
 
     public function __construct(private readonly Moderation $moderation)
     {
@@ -94,24 +105,39 @@ final class ModPanel implements Module
                     ->create($repo)
                     ->save('modpanel command');
             }
+
+            if ($repo->get('name', 'Report to mods') === null) {
+                CommandBuilder::new()
+                    // setType() before setName(): setName() runs the CHAT_INPUT
+                    // name regex (no spaces / capitals) until the type says
+                    // otherwise, and this is a MESSAGE context-menu entry.
+                    ->setType(Command::MESSAGE)
+                    ->setName('Report to mods')
+                    ->setContext([Interaction::CONTEXT_TYPE_GUILD])
+                    ->addIntegrationType(Application::INTEGRATION_TYPE_GUILD_INSTALL)
+                    ->create($repo)
+                    ->save('Report to mods command');
+            }
         });
 
         $bot->listenCommand('Moderate', fn (Interaction $i) => $this->open($bot, $i, (string) ($i->data->target_id ?? '')));
         $bot->listenCommand('modpanel', fn (Interaction $i) => $this->open($bot, $i, (string) ($i->data->options?->first()?->value ?? '')));
+        $bot->listenCommand('Report to mods', fn (Interaction $i) => $this->report($bot, $i));
 
-        // One dispatcher for every panel button — stable `mp:<action>:<target>`
-        // custom_ids, so a self-refreshing panel never stacks listeners.
+        // One dispatcher for every panel button. Both flows use stable
+        // custom_ids (`mp:` for the ephemeral member panel, `mpr:` for the
+        // persistent report card), so nothing stacks listeners and the report
+        // buttons keep working across restarts.
         $bot->on(Event::INTERACTION_CREATE, function (Interaction $i) use ($bot): void {
-            if ($i->type !== Interaction::TYPE_MESSAGE_COMPONENT) {
+            if ($i->type !== Interaction::TYPE_MESSAGE_COMPONENT || ! $i->guild instanceof Guild) {
                 return;
             }
-            $id = (string) ($i->data->custom_id ?? '');
-            if (! str_starts_with($id, 'mp:')) {
-                return;
-            }
-            [, $action, $targetId] = explode(':', $id, 3) + [null, '', ''];
-            if ($i->guild instanceof Guild && $action !== '' && $targetId !== '') {
-                $this->onButton($bot, $i, $i->guild, $targetId, $action);
+            $parts = explode(':', (string) ($i->data->custom_id ?? ''));
+            if (($parts[0] ?? '') === 'mp' && ($parts[1] ?? '') !== '' && ($parts[2] ?? '') !== '') {
+                $this->onButton($bot, $i, $i->guild, $parts[2], $parts[1]);
+            } elseif (($parts[0] ?? '') === 'mpr' && count($parts) === 5) {
+                [, $action, $authorId, $channelId, $messageId] = $parts;
+                $this->onReportButton($bot, $i, $i->guild, $action, $authorId, $channelId, $messageId);
             }
         });
     }
@@ -342,5 +368,189 @@ final class ModPanel implements Module
         }
 
         return $guild->members->fetch($userId)->then(null, static fn () => null);
+    }
+
+    // --- report to mods --------------------------------------------------
+
+    /**
+     * `Report to mods` message context-menu: any member can run it. Posts a V2
+     * report card to the log channel and quietly acknowledges the reporter.
+     */
+    private function report(Tutelar $bot, Interaction $interaction): PromiseInterface
+    {
+        $guild = $interaction->guild;
+        if (! $guild instanceof Guild) {
+            return $interaction->respondWithMessage(Tutelar::reply(false)->setContent('Server only.'), true);
+        }
+
+        $messageId = (string) ($interaction->data->target_id ?? '');
+        $channelId = (string) ($interaction->channel_id ?? '');
+        $message = $interaction->data->resolved?->messages?->get('id', $messageId);
+        $authorId = $message instanceof Message ? (string) ($message->author?->id ?? '') : '';
+        $content = $message instanceof Message ? (string) $message->content : '';
+
+        $logId = $bot->guild($guild->id)->channel('modlog') ?? $bot->guild($guild->id)->channel('log');
+        if ($logId === null) {
+            return $interaction->respondWithMessage(
+                Tutelar::reply(false)->setContent('This server has no log channel set — a mod needs to run `/config set` first, so reports have nowhere to go.'),
+                true,
+            );
+        }
+
+        $channel = $bot->getChannel($logId);
+        if (! $channel instanceof Channel) {
+            return $interaction->respondWithMessage(Tutelar::reply(false)->setContent('The configured log channel is not reachable.'), true);
+        }
+
+        $panel = $this->reportPanel([
+            'guildId' => (string) $guild->id,
+            'authorId' => $authorId,
+            'reporterId' => (string) ($interaction->user->id ?? ''),
+            'channelId' => $channelId,
+            'messageId' => $messageId,
+            'content' => $content,
+            'status' => null,
+        ]);
+
+        // Ack the reporter inside the 3s deadline first, then post the card —
+        // a slow log-channel write must not strand the interaction.
+        $ack = $interaction->respondWithMessage(Tutelar::reply(false)->setContent('✅ Sent to the mods. Thanks for the report.'), true);
+        $channel->sendMessage($panel)->then(null, static fn (\Throwable $e) => $bot->logger->warning('[mod-panel] report card post failed: ' . $e->getMessage()));
+
+        return $ack;
+    }
+
+    /**
+     * Build the report card. With `status` set it renders the resolved receipt
+     * (no buttons); otherwise it carries the Timeout / Kick / Ban / Dismiss row.
+     *
+     * @param array{guildId:string,authorId:string,reporterId:string,channelId:string,messageId:string,content:string,status:?string} $d
+     */
+    private function reportPanel(array $d): MessageBuilder
+    {
+        $jump = "https://discord.com/channels/{$d['guildId']}/{$d['channelId']}/{$d['messageId']}";
+
+        $lines = ['## ⚠️ Message reported'];
+        $meta = $d['authorId'] !== '' ? "Author <@{$d['authorId']}>" : 'Author unknown';
+        if ($d['reporterId'] !== '') {
+            $meta .= " · reported by <@{$d['reporterId']}>";
+        }
+        $meta .= " · in <#{$d['channelId']}>";
+        $lines[] = $meta;
+        if (trim($d['content']) !== '') {
+            $quoted = implode("\n", array_map(static fn (string $l): string => "> {$l}", explode("\n", Text::clip($d['content'], 1200))));
+            $lines[] = $quoted;
+        }
+        $lines[] = "[Jump to message]({$jump})";
+        if ($d['status'] !== null) {
+            $lines[] = "\n**{$d['status']}**";
+        }
+
+        $container = Container::new()
+            ->setAccentColor(self::REPORT_ACCENT)
+            ->addComponent(TextDisplay::new(implode("\n", $lines)));
+
+        $msg = MessageBuilder::new()
+            ->setIsComponentsV2Flag(true)
+            ->setAllowedMentions(AllowedMentions::none())
+            ->addComponent($container);
+
+        if ($d['status'] === null && $d['authorId'] !== '') {
+            $id = fn (string $a): string => "mpr:{$a}:{$d['authorId']}:{$d['channelId']}:{$d['messageId']}";
+            $msg->addComponent(ActionRow::new()
+                ->addComponent(Button::new(Button::STYLE_SECONDARY, $id('timeout'))->setLabel('Timeout'))
+                ->addComponent(Button::new(Button::STYLE_DANGER, $id('kick'))->setLabel('Kick'))
+                ->addComponent(Button::new(Button::STYLE_DANGER, $id('ban'))->setLabel('Ban'))
+                ->addComponent(Button::new(Button::STYLE_SECONDARY, $id('dismiss'))->setLabel('Dismiss')));
+        }
+
+        return $msg;
+    }
+
+    /** A click on a report card's action button. */
+    private function onReportButton(Tutelar $bot, Interaction $ci, Guild $guild, string $action, string $authorId, string $channelId, string $messageId): PromiseInterface
+    {
+        if (! Permissions::memberHasAny(Permissions::MODERATOR, $ci->member)) {
+            return $ci->respondWithMessage(Tutelar::reply(false)->setContent('You need a moderator permission to act on a report.'), true);
+        }
+
+        $modMention = '<@' . ($ci->user->id ?? '?') . '>';
+
+        if ($action === 'dismiss') {
+            return $ci->updateMessage($this->reportPanel($this->resolvedCard($guild, $authorId, $channelId, $messageId, "🚫 Dismissed by {$modMention}")));
+        }
+
+        $refusal = $this->moderation->guardMember($guild, $ci->member instanceof Member ? $ci->member : null, $authorId);
+        if ($refusal !== null) {
+            return $ci->respondWithMessage(Tutelar::reply(false)->setContent($refusal), true);
+        }
+
+        $fields = [Label::new(
+            'Reason',
+            TextInput::new(null, TextInput::STYLE_PARAGRAPH, 'reason')->setRequired(false)->setMaxLength(400),
+            'Shown in the mod-log and the audit log.',
+        )];
+        if ($action === 'timeout') {
+            $fields[] = Label::new(
+                'Duration',
+                TextInput::new(null, TextInput::STYLE_SHORT, 'duration')->setRequired(true)->setPlaceholder('e.g. 10m, 2h, 1d (max 28d)')->setMaxLength(16),
+            );
+        }
+
+        return $ci->showModal(
+            ucfirst($action) . ' reported member',
+            "mpr-modal:{$action}:{$authorId}",
+            $fields,
+            function (Interaction $modalI, $components) use ($bot, $guild, $action, $authorId, $channelId, $messageId, $modMention): PromiseInterface {
+                $values = [];
+                foreach ($components as $component) {
+                    $values[(string) ($component->custom_id ?? '')] = (string) ($component->value ?? '');
+                }
+                $reason = trim($values['reason'] ?? '');
+                $duration = trim($values['duration'] ?? '');
+
+                $seconds = null;
+                if ($action === 'timeout') {
+                    $seconds = Duration::toSeconds($duration);
+                    if ($seconds === null || $seconds < 1) {
+                        return $modalI->respondWithMessage(Tutelar::reply(false)->setContent("Couldn't read the duration \"{$duration}\"."), true);
+                    }
+                }
+
+                return $this->moderation->actOnMember($bot, $guild, $action, $authorId, (string) ($modalI->user->id ?? ''), $reason, $seconds)->then(
+                    fn (array $case) => $modalI->updateMessage($this->reportPanel($this->resolvedCard(
+                        $guild,
+                        $authorId,
+                        $channelId,
+                        $messageId,
+                        self::statusLine($action, $case, $duration !== '' ? $duration : null) . " by {$modMention}",
+                    ))),
+                    fn (\Throwable $e) => $modalI->respondWithMessage(
+                        Tutelar::reply(false)->setContent("Couldn't {$action} <@{$authorId}>: " . Text::clip($e->getMessage(), 300)),
+                        true,
+                    ),
+                );
+            },
+        );
+    }
+
+    /**
+     * The `$d` payload for {@see reportPanel()} in its resolved (buttonless)
+     * form — the reporter and message content aren't in a button's context, so
+     * the receipt keeps just the author, the jump link and the outcome.
+     *
+     * @return array{guildId:string,authorId:string,reporterId:string,channelId:string,messageId:string,content:string,status:?string}
+     */
+    private function resolvedCard(Guild $guild, string $authorId, string $channelId, string $messageId, string $status): array
+    {
+        return [
+            'guildId' => (string) $guild->id,
+            'authorId' => $authorId,
+            'reporterId' => '',
+            'channelId' => $channelId,
+            'messageId' => $messageId,
+            'content' => '',
+            'status' => $status,
+        ];
     }
 }
