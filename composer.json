@@ -18,7 +18,8 @@
         "phpunit/phpunit": "^9.4.4",
         "laravel/pint": "^1.21",
         "phpacker/phpacker": "^0.6.4",
-        "symfony/console": "^7.4"
+        "symfony/console": "^7.4",
+        "valgorithms/discord-php-eventlogger": "@dev"
     },
     "scripts": {
         "pint": [
@@ -45,6 +46,13 @@
         {
             "type": "path",
             "url": "../DiscordPHP-Http",
+            "options": {
+                "symlink": true
+            }
+        },
+        {
+            "type": "path",
+            "url": "../DiscordPHP-EventLogger",
             "options": {
                 "symlink": true
             }
