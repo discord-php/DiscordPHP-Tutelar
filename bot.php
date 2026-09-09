@@ -23,6 +23,7 @@ use Tutelar\Modules\Configuration;
 use Tutelar\Modules\EventLogger;
 use Tutelar\Modules\Help;
 use Tutelar\Modules\Moderation;
+use Tutelar\Modules\ModPanel;
 use Tutelar\Modules\Onboarding;
 use Tutelar\Modules\PresenceRotator;
 use Tutelar\Modules\SlashCommands;
@@ -115,13 +116,16 @@ $bot = new Tutelar($config, $store, [
     'loadAllMembers' => false,
 ]);
 
+$moderation = new Moderation(new CaseBook(getenv('TUTELAR_MODERATION_PATH') ?: ($baseDir . '/var/moderation.json')));
+
 $bot
     ->addModule(new PresenceRotator())
     ->addModule(new SlashCommands())
     ->addModule(new Help())
     ->addModule(new Configuration())
     ->addModule(new Onboarding())
-    ->addModule(new Moderation(new CaseBook(getenv('TUTELAR_MODERATION_PATH') ?: ($baseDir . '/var/moderation.json'))))
+    ->addModule($moderation)
+    ->addModule(new ModPanel($moderation))
     ->addModule(new EventLogger());
 
 $bot->run();
