@@ -88,7 +88,7 @@ top role isn't below yours).
 | manual permission-overwrite editing | `/mod lock` / `/mod unlock` — records and restores the prior `send_messages` state |
 | slowmode in channel settings | `/mod slowmode <seconds>` |
 | a "report" that goes to Discord Trust & Safety | a **Report to mods** message command that opens a private **ticket channel** for *this server's* mod team |
-| — (no ticketing) | `/ticket [user] [reason]` and the report flow spin up a fresh channel at the server root — no category, visible only to roles with a moderator permission. Buttons: **Close** / **Warn user** / **Invite user**. Every step is logged; **Close** files the full transcript to `modlog` as a `.txt` and deletes the channel. |
+| — (no ticketing) | `/ticket [user] [reason]` and the report flow spin up a fresh channel at the server root — no category, visible only to roles with a moderator permission. Buttons: **Close** / **Warn user** / **Add user**. Every step is logged; **Close** files the full transcript to `modlog` as a `.txt` and deletes the channel. |
 
 Set `guilds.<id>.channels.modlog` in `config.json` (it falls back to `log`).
 

@@ -50,9 +50,11 @@ use function React\Promise\resolve;
  * channel's creation overwrites, so it is private from the first tick.
  *
  * The opening message is a Components V2 card with three buttons —
- * **Close**, **Warn user**, **Invite user** — carrying stable
+ * **Close**, **Warn user**, **Add user** — carrying stable
  * `tkt:<action>:<channelId>` custom_ids routed by one `INTERACTION_CREATE`
  * dispatcher (so nothing stacks listeners and the buttons survive a restart).
+ * **Add user** just writes a permission overwrite for the subject — there is
+ * no invite to accept; they can see and talk in the channel immediately.
  *
  * Every step is appended to the ticket's log in {@see \Tutelar\Store} and
  * echoed as a short V2 note in-channel. **Closing deletes the channel** and
@@ -83,7 +85,7 @@ final class Tickets implements Module
     /** What a staff role / the bot may do in a ticket channel. */
     private const STAFF_ALLOW = self::P_VIEW | self::P_SEND | self::P_EMBED | self::P_ATTACH | self::P_HISTORY;
 
-    /** What an invited subject may do (read + talk, no embeds/files). */
+    /** What an added subject may do (read + talk, no embeds/files). */
     private const GUEST_ALLOW = self::P_VIEW | self::P_SEND | self::P_HISTORY;
 
     public function __construct(private readonly Moderation $moderation)
@@ -254,19 +256,23 @@ final class Tickets implements Module
         }
 
         return match ($action) {
-            'invite' => $this->invite($bot, $ci, $guild, $ticket),
+            'add' => $this->addSubject($bot, $ci, $guild, $ticket),
             'warn' => $this->warn($bot, $ci, $guild, $ticket),
             'close' => $this->promptClose($bot, $ci, $guild, $ticket),
             default => $ci->respondWithMessage(Tutelar::reply(false)->setContent('Unknown ticket action.'), true),
         };
     }
 
-    /** Grant the subject `view` + `send` in the channel so staff can talk to them. */
-    private function invite(Tutelar $bot, Interaction $ci, Guild $guild, array $ticket): PromiseInterface
+    /**
+     * Add the subject to the ticket by writing a channel permission overwrite
+     * (`view` + `send` + history). There is nothing for them to accept — the
+     * overwrite takes effect immediately.
+     */
+    private function addSubject(Tutelar $bot, Interaction $ci, Guild $guild, array $ticket): PromiseInterface
     {
         $subjectId = (string) ($ticket['subjectId'] ?? '');
         if ($subjectId === '') {
-            return $ci->respondWithMessage(Tutelar::reply(false)->setContent('This ticket has no subject member to invite.'), true);
+            return $ci->respondWithMessage(Tutelar::reply(false)->setContent('This ticket has no subject member to add.'), true);
         }
         $channel = $bot->getChannel((string) $ticket['channelId']);
         if (! $channel instanceof Channel) {
@@ -282,13 +288,13 @@ final class Tickets implements Module
                     return $ci->updateOriginalResponse(Tutelar::reply(false)->setContent("<@{$subjectId}> is not in this server."));
                 }
 
-                return $channel->setPermissions($m, ['view_channel', 'send_messages', 'read_message_history'], [], 'Ticket: invite subject')->then(function () use ($bot, $ci, $channel, $ticket, $subjectId) {
+                return $channel->setPermissions($m, ['view_channel', 'send_messages', 'read_message_history'], [], 'Ticket: add subject')->then(function () use ($bot, $ci, $channel, $ticket, $subjectId) {
                     $actor = '<@' . ($ci->user->id ?? '?') . '>';
-                    $this->appendLog($bot, $ticket, $actor, "invited <@{$subjectId}> to the channel");
-                    $channel->sendMessage($this->note("📨 {$actor} invited <@{$subjectId}> to this ticket.", true));
+                    $this->appendLog($bot, $ticket, $actor, "added <@{$subjectId}> to the channel");
+                    $channel->sendMessage($this->note("➕ {$actor} added <@{$subjectId}> to this ticket — they can see and reply here now.", true));
 
-                    return $ci->updateOriginalResponse(Tutelar::reply()->setContent("Invited <@{$subjectId}>."));
-                }, fn (\Throwable $e) => $ci->updateOriginalResponse(Tutelar::reply(false)->setContent('Could not invite them: ' . Text::clip($e->getMessage(), 200))));
+                    return $ci->updateOriginalResponse(Tutelar::reply()->setContent("Added <@{$subjectId}> to the channel."));
+                }, fn (\Throwable $e) => $ci->updateOriginalResponse(Tutelar::reply(false)->setContent('Could not add them: ' . Text::clip($e->getMessage(), 200))));
             });
     }
 
@@ -458,7 +464,7 @@ final class Tickets implements Module
         $row = ActionRow::new()
             ->addComponent(Button::new(Button::STYLE_DANGER, $id('close'))->setLabel('Close'))
             ->addComponent(Button::new(Button::STYLE_SECONDARY, $id('warn'))->setLabel('Warn user')->setDisabled($subjectId === ''))
-            ->addComponent(Button::new(Button::STYLE_SECONDARY, $id('invite'))->setLabel('Invite user')->setDisabled($subjectId === ''));
+            ->addComponent(Button::new(Button::STYLE_SECONDARY, $id('add'))->setLabel('Add user')->setDisabled($subjectId === ''));
 
         return MessageBuilder::new()
             ->setIsComponentsV2Flag(true)

@@ -75,7 +75,7 @@ final class Help implements Module
                 '`/mod lock [channel] [reason]` · `/mod unlock [channel] [reason]` — stop / restore @everyone sending.',
                 '**Panel & context menus**',
                 '`/modpanel <user>` or right-click a member → Apps → **Moderate** — an interactive panel: warn / timeout / kick / ban / unban / history, all in one place.',
-                '`Report to mods` — any member: right-click a message → Apps → Report to mods. It opens a **private ticket channel** for the mod team (Close / Warn user / Invite user).',
+                '`Report to mods` — any member: right-click a message → Apps → Report to mods. It opens a **private ticket channel** for the mod team (Close / Warn user / Add user).',
                 '**Tickets**',
                 '`/ticket [user] [reason]` — open a private staff channel at the server root, visible only to roles with a moderator permission. **Close** files the full transcript to the mod-log as a `.txt` and deletes the channel.',
                 'Every action writes a numbered case to the mod-log channel (`/config set` → *Mod-log channel*).',
