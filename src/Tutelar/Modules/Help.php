@@ -50,7 +50,7 @@ final class Help implements Module
             'title' => 'Everyone',
             'lines' => [
                 '`/help` — this guide.',
-                '`/whois [user]` — account age, join date and roles for a member (or yourself).',
+                '`/whois [user]` (or right-click a member → Apps → **Whois**) — account age, join date and roles for a member (or yourself).',
                 '`/invite` — a link to add Tutelar to another server.',
                 '`/ping` — the bot\'s current gateway latency.',
             ],

@@ -17,6 +17,7 @@ use Discord\Builders\CommandBuilder;
 use Discord\Parts\Embed\Embed;
 use Discord\Parts\Interactions\Command\Command;
 use Discord\Parts\Interactions\Command\Option;
+use Discord\Parts\Guild\Role;
 use Discord\Parts\Interactions\Interaction;
 use Discord\Parts\OAuth\Application;
 use Discord\Parts\User\Member;
@@ -25,10 +26,11 @@ use Tutelar\Support\Text;
 use Tutelar\Tutelar;
 
 /**
- * Registers and handles Tutelar's global slash commands (`/whois`, `/invite`,
- * `/ping`). User- and guild-installable, usable in guilds, the bot's DMs and
- * group DMs; every reply is ephemeral, and all three answer from cache so they
- * respond well inside the interaction deadline.
+ * Registers and handles Tutelar's global commands: `/whois` (plus its
+ * right-click **Whois** user context-menu twin), `/invite`, `/ping`. User- and
+ * guild-installable, usable in guilds, the bot's DMs and group DMs; every reply
+ * is ephemeral, and all answer from the interaction payload / cache so they
+ * respond well inside the deadline.
  *
  * Command definitions are created once and then left alone (the
  * `$repo->get('name', …)` guard in {@see define()}): edit a name or option and
@@ -57,6 +59,7 @@ final class SlashCommands implements Module
         });
 
         $bot->listenCommand('whois', fn (Interaction $i) => $this->whois($bot, $i));
+        $bot->listenCommand('Whois', fn (Interaction $i) => $this->whois($bot, $i));   // right-click a user → Apps → Whois
         $bot->listenCommand('invite', fn (Interaction $i) => $this->invite($bot, $i));
         $bot->listenCommand('ping', fn (Interaction $i) => $i->respondWithMessage(
             Tutelar::reply(false)->setContent($this->lastLatencyMs === null
@@ -89,17 +92,49 @@ final class SlashCommands implements Module
             ->setName('user')->setDescription('Whose details (defaults to you).')->setType(Option::USER));
         $mk('invite', "Get Tutelar's invite link.");
         $mk('ping', 'Check the bot\'s gateway latency.');
+
+        // The user context-menu twin of `/whois` — "right-click a member → Apps
+        // → Whois". A USER command has no options; the target is `target_id`.
+        // setType() before setName(): setName() runs the slash-name regex (no
+        // spaces / caps) until the type says otherwise.
+        if ($repo->get('name', 'Whois') === null) {
+            CommandBuilder::new()
+                ->setType(Command::USER)
+                ->setName('Whois')
+                ->setContext([Interaction::CONTEXT_TYPE_GUILD, Interaction::CONTEXT_TYPE_BOT_DM, Interaction::CONTEXT_TYPE_PRIVATE_CHANNEL])
+                ->addIntegrationType(Application::INTEGRATION_TYPE_GUILD_INSTALL)
+                ->addIntegrationType(Application::INTEGRATION_TYPE_USER_INSTALL)
+                ->create($repo)
+                ->save('Whois user command');
+        }
     }
 
     private function whois(Tutelar $bot, Interaction $interaction): \React\Promise\PromiseInterface
     {
-        // The `user` option if given, else the caller. `$interaction->user`
-        // resolves in both guilds and DMs (it falls back to member->user).
-        $opt = $interaction->data->options?->first();
-        $targetId = ($opt?->value) ? (string) $opt->value : (string) $interaction->user->id;
+        $data = $interaction->data;
 
-        $member = $interaction->guild?->members?->get('id', $targetId);
-        $user = $member instanceof Member ? $member->user : $bot->users->get('id', $targetId);
+        // Target, in priority order:
+        //   • `target_id`            — the user context-menu command ("Whois");
+        //   • the `user` option      — `/whois user:@someone` (by NAME, not
+        //                              `->first()`, which was returning nothing
+        //                              and silently falling back to the caller);
+        //   • the caller             — bare `/whois`.
+        $targetId = (string) (
+            ($data->target_id ?? null)
+            ?? ($data->options?->get('name', 'user')?->value ?? null)
+            ?? $interaction->user->id
+        );
+        $isSelf = $targetId === (string) ($interaction->user->id ?? '');
+
+        // `resolved` carries the target's user + partial member even when the
+        // bot doesn't have them cached (a user-installed invocation).
+        $resolved = $data->resolved ?? null;
+        $user = $resolved?->users?->get('id', $targetId)
+            ?? $bot->users->get('id', $targetId)
+            ?? ($isSelf ? $interaction->user : null);
+        $member = $resolved?->members?->first()
+            ?? $interaction->guild?->members?->get('id', $targetId)
+            ?? ($isSelf && $interaction->member instanceof Member ? $interaction->member : null);
 
         $embed = (new Embed($bot))
             ->setColor(0xA7C5FD)
@@ -118,7 +153,9 @@ final class SlashCommands implements Module
             $embed->addFieldValues(...Text::field('Joined', $member->joined_at ? '<t:' . $member->joined_at->timestamp . ':R>' : 'unknown', true));
             $roles = [];
             foreach ($member->roles as $role) {
-                $roles[] = (string) $role;
+                if ($role instanceof Role) {
+                    $roles[] = (string) $role;
+                }
             }
             if ($roles !== []) {
                 $embed->addFieldValues(...Text::field('Roles', implode(' ', $roles)));
