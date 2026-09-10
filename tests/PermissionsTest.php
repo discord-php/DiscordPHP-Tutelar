@@ -64,6 +64,58 @@ final class PermissionsTest extends TestCase
         $this->assertTrue(Permissions::grantsAny(['manage_guild'], ['manage_guild' => true]));
     }
 
+    public function testResolveGrantsTheGuildOwnerOutright(): void
+    {
+        $this->assertTrue(Permissions::resolve(Permissions::MANAGER, true, null, []));
+        $this->assertTrue(Permissions::resolve([], true, null, []), 'owner wins even with an empty accept list');
+    }
+
+    public function testResolveAcceptsTheInteractionBitsetWhenItGrants(): void
+    {
+        $this->assertTrue(Permissions::resolve(
+            Permissions::MANAGER,
+            false,
+            ['administrator' => false, 'manage_guild' => true],
+            [],
+        ));
+    }
+
+    public function testResolveFallsBackToAnyRoleMapWhenTheBitsetIsAbsentOrEmpty(): void
+    {
+        // Bitset missing (interaction payload had none), but an admin role in the walk.
+        $this->assertTrue(Permissions::resolve(
+            Permissions::MANAGER,
+            false,
+            null,
+            [
+                ['administrator' => false, 'manage_guild' => false], // @everyone
+                ['administrator' => true, 'manage_guild' => false],  // an admin role
+            ],
+        ));
+
+        // Bitset present but says no; a later role map still rescues it.
+        $this->assertTrue(Permissions::resolve(
+            Permissions::MANAGER,
+            false,
+            ['administrator' => false, 'manage_guild' => false],
+            [['administrator' => false, 'manage_guild' => true]],
+        ));
+    }
+
+    public function testResolveIsFalseWhenNoSourceGrants(): void
+    {
+        $this->assertFalse(Permissions::resolve(
+            Permissions::MANAGER,
+            false,
+            ['administrator' => false, 'manage_guild' => false],
+            [
+                ['administrator' => false, 'manage_guild' => false],
+                ['administrator' => false, 'manage_guild' => false],
+            ],
+        ));
+        $this->assertFalse(Permissions::resolve(Permissions::MANAGER, false, null, []), 'nothing to go on → fail closed');
+    }
+
     public function testTheCannedSetsAreNonEmptyAndDistinct(): void
     {
         $this->assertNotEmpty(Permissions::MODERATOR);
