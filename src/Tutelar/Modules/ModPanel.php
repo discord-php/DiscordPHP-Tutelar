@@ -68,8 +68,10 @@ final class ModPanel implements Module
 
     private const REPORT_ACCENT = 0xE8B923;
 
-    public function __construct(private readonly Moderation $moderation)
-    {
+    public function __construct(
+        private readonly Moderation $moderation,
+        private readonly ?Tickets $tickets = null,
+    ) {
     }
 
     public function name(): string
@@ -373,8 +375,10 @@ final class ModPanel implements Module
     // --- report to mods --------------------------------------------------
 
     /**
-     * `Report to mods` message context-menu: any member can run it. Posts a V2
-     * report card to the log channel and quietly acknowledges the reporter.
+     * `Report to mods` message context-menu: any member can run it. When a
+     * {@see Tickets} module is wired (the default), the report opens a private
+     * staff ticket channel; otherwise it falls back to a V2 report card in the
+     * log channel.
      */
     private function report(Tutelar $bot, Interaction $interaction): PromiseInterface
     {
@@ -388,6 +392,17 @@ final class ModPanel implements Module
         $message = $interaction->data->resolved?->messages?->get('id', $messageId);
         $authorId = $message instanceof Message ? (string) ($message->author?->id ?? '') : '';
         $content = $message instanceof Message ? (string) $message->content : '';
+
+        // Preferred path: spin up a private ticket channel for the mod team.
+        if ($this->tickets !== null) {
+            return $interaction->acknowledgeWithResponse(true)->then(fn () => $this->tickets->openFromReport($bot, $guild, [
+                'authorId' => $authorId,
+                'reporterId' => (string) ($interaction->user->id ?? ''),
+                'channelId' => $channelId,
+                'messageId' => $messageId,
+                'content' => $content,
+            ])->then(fn (string $msg) => $interaction->updateOriginalResponse(Tutelar::reply(false)->setContent($msg))));
+        }
 
         $logId = $bot->guild($guild->id)->channel('modlog') ?? $bot->guild($guild->id)->channel('log');
         if ($logId === null) {

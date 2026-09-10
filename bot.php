@@ -27,6 +27,7 @@ use Tutelar\Modules\ModPanel;
 use Tutelar\Modules\Onboarding;
 use Tutelar\Modules\PresenceRotator;
 use Tutelar\Modules\SlashCommands;
+use Tutelar\Modules\Tickets;
 
 use function React\Promise\set_rejection_handler;
 
@@ -117,6 +118,7 @@ $bot = new Tutelar($config, $store, [
 ]);
 
 $moderation = new Moderation(new CaseBook(getenv('TUTELAR_MODERATION_PATH') ?: ($baseDir . '/var/moderation.json')));
+$tickets = new Tickets($moderation);
 
 $bot
     ->addModule(new PresenceRotator())
@@ -125,7 +127,8 @@ $bot
     ->addModule(new Configuration())
     ->addModule(new Onboarding())
     ->addModule($moderation)
-    ->addModule(new ModPanel($moderation))
+    ->addModule($tickets)
+    ->addModule(new ModPanel($moderation, $tickets))
     ->addModule(new EventLogger());
 
 $bot->run();

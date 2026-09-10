@@ -50,7 +50,7 @@ Discord's own UI, which is the point.
 Tutelar (MessageCommandClient)
   ├─ Config   (readonly, from config.json + env)
   ├─ Store    (runtime per-guild overrides + module scratch)
-  └─ modules: [ PresenceRotator, SlashCommands, Onboarding, Moderation, EventLogger, … ]
+  └─ modules: [ PresenceRotator, SlashCommands, Onboarding, Moderation, Tickets, ModPanel, EventLogger, … ]
 ```
 
 A module is anything implementing [`Module`](src/Tutelar/Modules/Module.php)
@@ -87,7 +87,8 @@ top role isn't below yours).
 | bulk delete (all-or-nothing, ≤100, <14 days) | `/mod purge count [user] [contains] [bots]` — filtered client-side, old messages skipped |
 | manual permission-overwrite editing | `/mod lock` / `/mod unlock` — records and restores the prior `send_messages` state |
 | slowmode in channel settings | `/mod slowmode <seconds>` |
-| a "report" that goes to Discord Trust & Safety | a **Report to mods** message command that posts to *this server's* `modlog` |
+| a "report" that goes to Discord Trust & Safety | a **Report to mods** message command that opens a private **ticket channel** for *this server's* mod team |
+| — (no ticketing) | `/ticket [user] [reason]` and the report flow spin up a fresh channel at the server root — no category, visible only to roles with a moderator permission. Buttons: **Close** / **Warn user** / **Invite user**. Every step is logged; **Close** files the full transcript to `modlog` as a `.txt` and deletes the channel. |
 
 Set `guilds.<id>.channels.modlog` in `config.json` (it falls back to `log`).
 
