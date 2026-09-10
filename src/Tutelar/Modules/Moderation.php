@@ -156,7 +156,7 @@ final class Moderation implements Module
         if (! $guild instanceof Guild) {
             return $interaction->respondWithMessage(Tutelar::reply(false)->setContent('Server only.'), true);
         }
-        if (! Permissions::memberHasAny(Permissions::MODERATOR, $interaction->member)) {
+        if (! Permissions::forInteraction(Permissions::MODERATOR, $interaction)) {
             return $interaction->respondWithMessage(Tutelar::reply(false)->setContent('You need a moderator permission (kick / ban / timeout / manage server) to use this.'), true);
         }
 

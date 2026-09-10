@@ -20,7 +20,15 @@ use Discord\Parts\User\Member;
 
 /**
  * The legacy `perm_check()` closure, as a small typed helper: does a member hold
- * *any* of the named Discord permissions (optionally within a channel)?
+ * *any* of the named Discord permissions?
+ *
+ * For a command / component interaction, prefer {@see forInteraction()} — it
+ * reads the effective permission bitfield Discord puts **on the interaction
+ * payload** (`member.permissions`, already resolved against the member's roles,
+ * `@everyone` and the channel's overwrites, needing no cache) before it ever
+ * touches a DiscordPHP `Member` part. That raw field is the authoritative
+ * source; the part-based path ({@see memberHasAny()}) is the fallback for
+ * non-interaction call sites and the belt-and-braces union.
  *
  * @since 2.0.0
  */
@@ -32,27 +40,151 @@ final class Permissions
     public const MANAGER = ['administrator', 'manage_guild'];
 
     /**
-     * Does `$member` hold any of the `$any` permissions — server-wide, or in
-     * `$channel` when given? A null member counts as "no" (fail closed).
+     * Bit POSITION (not value) of each permission name this helper understands,
+     * from Discord's permission flags (`1 << position`). `administrator` (3)
+     * implies every permission.
      *
-     * Discord hands us the same fact through several channels, each of which can
-     * be unavailable in a given moment, so this ORs **every** source it can
-     * reach and grants on the first hit ({@see resolve()}):
+     * @var array<string, int>
+     */
+    public const POSITIONS = [
+        'kick_members' => 1,
+        'ban_members' => 2,
+        'administrator' => 3,
+        'manage_channels' => 4,
+        'manage_guild' => 5,
+        'manage_messages' => 13,
+        'manage_roles' => 28,
+        'moderate_members' => 40,
+    ];
+
+    /**
+     * Gate for a slash-command or component {@see \Discord\Parts\Interactions\Interaction}:
+     * does the invoking member hold any of `$any`?
      *
-     *   1. guild owner → yes (owners hold every permission implicitly);
-     *   2. `$member->permissions` — the effective bitset Discord ships **on the
-     *      interaction payload**, needing no cache;
-     *   3. `Member::getPermissions()` — the role graph + channel overwrites,
-     *      computed from cache;
+     *   1. the raw `member.permissions` bitfield off the interaction payload
+     *      ({@see bitsFromInteraction()} → {@see bitsGrant()}) — no cache, and
+     *      already channel-resolved by Discord;
+     *   2. failing that, the part-based union ({@see memberHasAny()}).
+     *
+     * @param list<string> $any
+     */
+    public static function forInteraction(array $any, object $interaction): bool
+    {
+        if (self::bitsGrant($any, self::bitsFromInteraction($interaction))) {
+            return true;
+        }
+
+        $member = $interaction->member ?? null;
+
+        return $member instanceof Member && self::memberHasAny($any, $member);
+    }
+
+    /**
+     * The `member.permissions` decimal string carried on an interaction
+     * payload — the fully-resolved effective permissions Discord computed for
+     * the invoking member in the interaction's channel — or `null` when it
+     * isn't reachable (a DM interaction, or a shape we don't recognise).
+     *
+     * Tries the interaction's **raw** `member` attribute first (the pristine
+     * `stdClass` straight off the gateway, which always carries `permissions`),
+     * then the transformed `Member` part's raw attributes, then its getter.
+     * `ArrayAccess` / `->member` both run DiscordPHP's `getMemberAttribute()`
+     * transform, so they are NOT a source of the raw string on their own.
+     */
+    public static function bitsFromInteraction(object $interaction): ?string
+    {
+        $candidates = [];
+        if (method_exists($interaction, 'getRawAttributes')) {
+            $candidates[] = $interaction->getRawAttributes()['member'] ?? null;
+        }
+        $candidates[] = $interaction->member ?? null;
+
+        foreach ($candidates as $member) {
+            $perms = self::rawPermValue($member);
+            if ($perms !== null) {
+                return $perms;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Pull a `permissions` value out of whatever shape a `member` attribute
+     * took — a gateway `stdClass`, an array, or a DiscordPHP `Part` (read its
+     * raw attributes, not the mutating getter) — and normalise to a decimal
+     * string. `null` when there is nothing usable.
+     */
+    private static function rawPermValue(mixed $member): ?string
+    {
+        if (is_array($member)) {
+            $perms = $member['permissions'] ?? null;
+        } elseif (is_object($member)) {
+            $perms = null;
+            if (method_exists($member, 'getRawAttributes')) {
+                $perms = $member->getRawAttributes()['permissions'] ?? null;
+            }
+            $perms ??= ($member->permissions ?? null);
+        } else {
+            return null;
+        }
+
+        if (is_object($perms)) {          // a RolePermission part → its decimal bitwise
+            $perms = (string) $perms;
+        }
+        if (is_int($perms)) {
+            $perms = (string) $perms;
+        }
+
+        return (is_string($perms) && $perms !== '' && ctype_digit($perms)) ? $perms : null;
+    }
+
+    /**
+     * Does a raw permission bitfield grant any of `$any`? `administrator`
+     * (bit 3) short-circuits. Pure.
+     *
+     * `(int)` on a decimal permission string is exact on 64-bit PHP for the
+     * whole current flag range (highest documented bit is 50); a 32-bit build
+     * would truncate the high flags, which this helper does not gate on.
+     *
+     * @param list<string> $any
+     */
+    public static function bitsGrant(array $any, int|string|null $bits): bool
+    {
+        if ($bits === null || $bits === '') {
+            return false;
+        }
+        $n = (int) $bits;
+
+        if ((($n >> self::POSITIONS['administrator']) & 1) === 1) {
+            return true;
+        }
+        foreach ($any as $perm) {
+            $pos = self::POSITIONS[$perm] ?? null;
+            if ($pos !== null && (($n >> $pos) & 1) === 1) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Does `$member` hold any of `$any` — server-wide, or in `$channel` when
+     * given? A null member counts as "no" (fail closed).
+     *
+     * ORs every source it can reach and grants on the first hit
+     * ({@see resolve()}):
+     *
+     *   1. guild owner → yes;
+     *   2. `$member->permissions` — the interaction-payload effective bitset;
+     *   3. `Member::getPermissions()` — the computed role graph + overwrites;
      *   4. a raw walk of `@everyone` + the member's own roles against the guild
-     *      role cache — the reliable fallback when (2) is absent and (3) bails
-     *      (a cold `@everyone` role, or a member part hydrated without its role
-     *      graph, which is what made an admin get "you need Manage Server").
+     *      role cache — the reliable fallback when 2 is absent and 3 bails.
      *
      * `administrator` in any source implies every permission.
      *
-     * @param list<string> $any    Permission names — see DiscordPHP's RolePermission.
-     * @param Member|null  $member The member to check.
+     * @param list<string> $any
      */
     public static function memberHasAny(array $any, ?Member $member, ?Channel $channel = null): bool
     {

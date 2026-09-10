@@ -126,7 +126,16 @@ final class Configuration implements Module
         if (! $guild instanceof Guild) {
             return $interaction->respondWithMessage(Tutelar::reply(false)->setContent('Server only.'), true);
         }
-        if (! Permissions::memberHasAny(Permissions::MANAGER, $interaction->member)) {
+        if (! Permissions::forInteraction(Permissions::MANAGER, $interaction)) {
+            // A denied /config is rare and, when it's wrong, hard to debug
+            // blind — leave a breadcrumb with what Discord actually sent.
+            $bot->logger->warning(sprintf(
+                '[config] permission denied for user %s in guild %s — interaction member.permissions=%s',
+                (string) ($interaction->user->id ?? '?'),
+                (string) $guild->id,
+                Permissions::bitsFromInteraction($interaction) ?? 'null',
+            ));
+
             return $interaction->respondWithMessage(
                 Tutelar::reply(false)->setContent('You need **Manage Server** (or Administrator) to change the bot config.'),
                 true,

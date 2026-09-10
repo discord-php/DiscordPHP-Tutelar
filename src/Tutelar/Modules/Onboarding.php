@@ -99,7 +99,7 @@ final class Onboarding implements Module
             return $interaction->respondWithMessage(Tutelar::reply(false)->setContent('This command only works in a server.'), true);
         }
 
-        if (! Permissions::memberHasAny(Permissions::MANAGER, $interaction->member)) {
+        if (! Permissions::forInteraction(Permissions::MANAGER, $interaction)) {
             return $interaction->respondWithMessage(Tutelar::reply(false)->setContent('You need **Manage Server** to use this.'), true);
         }
 

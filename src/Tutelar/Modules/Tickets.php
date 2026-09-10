@@ -146,7 +146,7 @@ final class Tickets implements Module
         if (! $guild instanceof Guild) {
             return $interaction->respondWithMessage(Tutelar::reply(false)->setContent('Server only.'), true);
         }
-        if (! Permissions::memberHasAny(Permissions::MODERATOR, $interaction->member)) {
+        if (! Permissions::forInteraction(Permissions::MODERATOR, $interaction)) {
             return $interaction->respondWithMessage(Tutelar::reply(false)->setContent('You need a moderator permission to open a ticket.'), true);
         }
 
@@ -246,7 +246,7 @@ final class Tickets implements Module
 
     private function onButton(Tutelar $bot, Interaction $ci, Guild $guild, string $action, string $channelId): PromiseInterface
     {
-        if (! Permissions::memberHasAny(Permissions::MODERATOR, $ci->member)) {
+        if (! Permissions::forInteraction(Permissions::MODERATOR, $ci)) {
             return $ci->respondWithMessage(Tutelar::reply(false)->setContent('You need a moderator permission to act on a ticket.'), true);
         }
 

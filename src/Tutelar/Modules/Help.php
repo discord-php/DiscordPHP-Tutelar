@@ -131,8 +131,8 @@ final class Help implements Module
     private function show(Tutelar $bot, Interaction $interaction): PromiseInterface
     {
         $member = $interaction->member instanceof Member ? $interaction->member : null;
-        $isModerator = $member !== null && Permissions::memberHasAny(Permissions::MODERATOR, $member);
-        $isManager = $member !== null && Permissions::memberHasAny(Permissions::MANAGER, $member);
+        $isModerator = $member !== null && Permissions::forInteraction(Permissions::MODERATOR, $interaction);
+        $isManager = $member !== null && Permissions::forInteraction(Permissions::MANAGER, $interaction);
 
         $embed = (new Embed($bot))
             ->setColor(self::COLOR)

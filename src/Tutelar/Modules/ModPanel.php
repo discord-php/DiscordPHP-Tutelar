@@ -151,7 +151,7 @@ final class ModPanel implements Module
         if (! $guild instanceof Guild) {
             return $interaction->respondWithMessage(Tutelar::reply(false)->setContent('Server only.'), true);
         }
-        if (! Permissions::memberHasAny(Permissions::MODERATOR, $interaction->member)) {
+        if (! Permissions::forInteraction(Permissions::MODERATOR, $interaction)) {
             return $interaction->respondWithMessage(Tutelar::reply(false)->setContent('You need a moderator permission (kick / ban / timeout / manage server) to use this.'), true);
         }
         if ($targetId === '') {
@@ -232,7 +232,7 @@ final class ModPanel implements Module
 
     private function onButton(Tutelar $bot, Interaction $ci, Guild $guild, string $targetId, string $action): PromiseInterface
     {
-        if (! Permissions::memberHasAny(Permissions::MODERATOR, $ci->member)) {
+        if (! Permissions::forInteraction(Permissions::MODERATOR, $ci)) {
             return $ci->respondWithMessage(Tutelar::reply(false)->setContent('You need a moderator permission to use this panel.'), true);
         }
 
@@ -502,7 +502,7 @@ final class ModPanel implements Module
     /** A click on a report card's action button. */
     private function onReportButton(Tutelar $bot, Interaction $ci, Guild $guild, string $action, string $authorId, string $channelId, string $messageId): PromiseInterface
     {
-        if (! Permissions::memberHasAny(Permissions::MODERATOR, $ci->member)) {
+        if (! Permissions::forInteraction(Permissions::MODERATOR, $ci)) {
             return $ci->respondWithMessage(Tutelar::reply(false)->setContent('You need a moderator permission to act on a report.'), true);
         }
 

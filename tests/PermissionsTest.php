@@ -64,6 +64,52 @@ final class PermissionsTest extends TestCase
         $this->assertTrue(Permissions::grantsAny(['manage_guild'], ['manage_guild' => true]));
     }
 
+    public function testBitsGrantShortCircuitsOnAdministrator(): void
+    {
+        // ADMINISTRATOR is bit 3 → value 8.
+        $this->assertTrue(Permissions::bitsGrant(Permissions::MANAGER, '8'));
+        $this->assertTrue(Permissions::bitsGrant([], '8'), 'admin implies everything, empty accept list included');
+        $this->assertTrue(Permissions::bitsGrant(Permissions::MODERATOR, (string) ((1 << 3) | (1 << 11))));
+    }
+
+    public function testBitsGrantMatchesANamedPermissionByItsBitPosition(): void
+    {
+        // MANAGE_GUILD is bit 5 → value 32.
+        $this->assertTrue(Permissions::bitsGrant(Permissions::MANAGER, '32'));
+        // KICK_MEMBERS is bit 1 → value 2; accepted by MODERATOR, not MANAGER.
+        $this->assertTrue(Permissions::bitsGrant(Permissions::MODERATOR, '2'));
+        $this->assertFalse(Permissions::bitsGrant(Permissions::MANAGER, '2'));
+    }
+
+    public function testBitsGrantIsFalseForNoBitsOrIrrelevantBits(): void
+    {
+        $this->assertFalse(Permissions::bitsGrant(Permissions::MANAGER, null));
+        $this->assertFalse(Permissions::bitsGrant(Permissions::MANAGER, ''));
+        $this->assertFalse(Permissions::bitsGrant(Permissions::MANAGER, '0'));
+        // SEND_MESSAGES is bit 11 → 2048; not a moderator/manager permission.
+        $this->assertFalse(Permissions::bitsGrant(Permissions::MANAGER, '2048'));
+    }
+
+    public function testForInteractionReadsTheRawMemberPermissionsBitfield(): void
+    {
+        $withBits = static fn (string $bits): object => new class($bits) {
+            public ?object $member = null;
+
+            public function __construct(private string $bits)
+            {
+            }
+
+            public function getRawAttributes(): array
+            {
+                return ['member' => (object) ['permissions' => $this->bits, 'roles' => []]];
+            }
+        };
+
+        $this->assertTrue(Permissions::forInteraction(Permissions::MANAGER, $withBits('8')), 'administrator bit');
+        $this->assertTrue(Permissions::forInteraction(Permissions::MANAGER, $withBits('32')), 'manage_guild bit');
+        $this->assertFalse(Permissions::forInteraction(Permissions::MANAGER, $withBits('2048')), 'only send_messages');
+    }
+
     public function testResolveGrantsTheGuildOwnerOutright(): void
     {
         $this->assertTrue(Permissions::resolve(Permissions::MANAGER, true, null, []));
