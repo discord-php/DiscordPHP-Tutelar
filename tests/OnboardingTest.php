@@ -79,4 +79,30 @@ final class OnboardingTest extends TestCase
     {
         $this->assertSame('*(no options)*', Onboarding::promptBody([]));
     }
+
+    public function testDescribeToggleErrorExplainsTheGuildRequirementsForCode350000(): void
+    {
+        $raw = 'Bad Request - {"message": "Cannot enable onboarding, requirements are not met", "code": 350000}';
+        $msg = Onboarding::describeToggleError($raw, enabling: true);
+
+        $this->assertStringContainsString("isn't a bot-permission problem", $msg);
+        $this->assertStringContainsString('Community', $msg);
+        $this->assertStringContainsString('7 channels', $msg);
+        $this->assertStringContainsString('5', $msg);
+        $this->assertStringNotContainsString('Manage Roles', $msg, 'a requirements failure must not blame the bot perms');
+    }
+
+    public function testDescribeToggleErrorStillBlamesBotPermsForA50013(): void
+    {
+        $msg = Onboarding::describeToggleError('Forbidden - {"message": "Missing Permissions", "code": 50013}', enabling: true);
+
+        $this->assertStringContainsString('Manage Server', $msg);
+        $this->assertStringContainsString('Manage Roles', $msg);
+    }
+
+    public function testDescribeToggleErrorPassesAnUnknownErrorThrough(): void
+    {
+        $msg = Onboarding::describeToggleError('Internal Server Error', enabling: false);
+        $this->assertStringContainsString('Internal Server Error', $msg);
+    }
 }

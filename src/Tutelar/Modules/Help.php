@@ -87,7 +87,7 @@ final class Help implements Module
             'lines' => [
                 '`/onboarding view` — the server\'s current onboarding prompts and what each option grants.',
                 '`/onboarding enable` · `/onboarding disable` — turn Discord\'s built-in onboarding / Channels & Roles flow on or off.',
-                'Editing the prompts themselves is **Server Settings → Onboarding**. Enable/disable needs the bot to hold Manage Server + Manage Roles.',
+                'Editing the prompts themselves is **Server Settings → Onboarding**. Enable/disable needs the bot to hold Manage Server + Manage Roles; **enabling** also needs the server itself to qualify — Community on, ≥7 channels `@everyone` can see, ≥5 of them sendable.',
             ],
         ],
         [

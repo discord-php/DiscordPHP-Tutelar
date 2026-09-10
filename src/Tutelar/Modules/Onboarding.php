@@ -41,7 +41,10 @@ use Tutelar\Tutelar;
  * Guild-only. Every sub-command reads or writes onboarding over the REST API
  * before it can reply, so the handler defers the interaction first (see
  * {@see route()}). Writing (`enable`/`disable`) needs the bot itself to hold
- * `MANAGE_GUILD` + `MANAGE_ROLES`.
+ * `MANAGE_GUILD` + `MANAGE_ROLES`; **enabling** additionally needs the *guild*
+ * to satisfy Discord's own prerequisites (Community on, ≥7 public channels,
+ * ≥5 of them sendable) — {@see describeToggleError()} spells those out when
+ * Discord returns `350000`.
  *
  * @since 2.0.0
  */
@@ -136,9 +139,42 @@ final class Onboarding implements Module
                 Tutelar::reply(false)->setContent($enabled ? '✅ Onboarding is now **on**.' : '✅ Onboarding is now **off**.'),
             ),
             fn (\Throwable $e) => $interaction->updateOriginalResponse(
-                Tutelar::reply(false)->setContent('Could not update onboarding: ' . $e->getMessage() . "\n(the bot needs **Manage Server** + **Manage Roles**)"),
+                Tutelar::reply(false)->setContent(self::describeToggleError($e->getMessage(), $enabled)),
             ),
         );
+    }
+
+    /**
+     * Turn a failed Modify-Guild-Onboarding into an actionable message. Pure.
+     *
+     *   - `350000` / "requirements are not met" — a GUILD-config prerequisite,
+     *     nothing to do with the bot's permissions: Community must be on, and
+     *     there must be ≥7 `@everyone`-visible channels with ≥5 of them
+     *     `@everyone`-sendable ({@see enableRequirements()}).
+     *   - `50013` / "Missing Permissions" — the bot really is short a permission
+     *     (`MANAGE_GUILD` + `MANAGE_ROLES`).
+     */
+    public static function describeToggleError(string $raw, bool $enabling): string
+    {
+        if (str_contains($raw, '350000') || stripos($raw, 'requirements are not met') !== false) {
+            return $enabling
+                ? "Discord won't enable onboarding until **the server** meets its requirements — this isn't a bot-permission problem:\n" . self::enableRequirements() . "\nSet those up, then run `/onboarding enable` again."
+                : "Discord rejected the change — requirements are not met.\n_{$raw}_";
+        }
+
+        if (str_contains($raw, '50013') || stripos($raw, 'missing permissions') !== false || stripos($raw, 'missing access') !== false) {
+            return "I'm missing a permission for this — I need **Manage Server** + **Manage Roles** in this server.\n_{$raw}_";
+        }
+
+        return "Could not update onboarding: {$raw}";
+    }
+
+    /** The Discord-imposed prerequisites for turning onboarding on, as a bullet list. Pure. */
+    public static function enableRequirements(): string
+    {
+        return "• **Community** must be enabled (Server Settings → Enable Community).\n"
+            . "• At least **7 channels** the `@everyone` role can see (\"default channels\").\n"
+            . "• At least **5** of those must let `@everyone` **send messages** (not read-only).";
     }
 
     private function embed(Tutelar $bot, OnboardingPart $onboarding): Embed
