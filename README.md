@@ -22,6 +22,7 @@ gateway is ready.
 | `status_changer_random` + `status.txt` | [`PresenceRotator`](src/Tutelar/Modules/PresenceRotator.php) module, list in `config.json` |
 | eight near-identical `log_functions.php` handlers | one [`EventLogger`](src/Tutelar/Modules/EventLogger.php) module |
 | slash `invite` / `whois` closures | [`SlashCommands`](src/Tutelar/Modules/SlashCommands.php) module, user- **and** guild-installable |
+| — (no way to see a raw member) | `/member json [user]` + the **Member JSON** right-click entry ([`MemberJson`](src/Tutelar/Modules/MemberJson.php)) — the member object as JSON, attached as a file when it outgrows a message |
 | **custom reaction-role engine** | **removed** — see below |
 
 ### Reaction roles → Discord's native community features
@@ -44,13 +45,39 @@ Both are gated on **Manage Server**; the writes additionally need the bot to
 hold **Manage Server + Manage Roles**. Actual prompt/option editing stays in
 Discord's own UI, which is the point.
 
+## Server applications
+
+When a server runs a member-verification form, Discord sends a **join request**
+for every submission. The
+[`Applications`](src/Tutelar/Modules/Applications.php) module turns that into
+something a staff team can act on:
+
+- a card in the `log` channel that **pings the server owner**, with the
+  applicant, their account age, every question and answer, and **Approve** /
+  **Deny** buttons (Deny takes an optional reason, shown to the applicant);
+- optional **auto-approval** — an application is approved without a human when
+  it passes every rule: a minimum account age, every required question answered,
+  and no moderation cases in this server. Whatever held an application back is
+  listed on its card.
+
+Rules are per-guild and edited from Discord with `/applications` (Manage
+Server); auto-approval is **off** until someone turns it on:
+
+```
+/applications view
+/applications rules auto:true min_account_age:30 require_answers:true clean_record:true
+```
+
+Discord only sends join-request events to a bot holding **Kick Members**, which
+is also what approving one takes — without it the module is simply inert.
+
 ## Module architecture
 
 ```
 Tutelar (MessageCommandClient)
   ├─ Config   (readonly, from config.json + env)
   ├─ Store    (runtime per-guild overrides + module scratch)
-  └─ modules: [ PresenceRotator, SlashCommands, Onboarding, Moderation, Tickets, ModPanel, EventLogger, … ]
+  └─ modules: [ PresenceRotator, SlashCommands, Onboarding, Applications, MemberJson, Moderation, Tickets, ModPanel, EventLogger, … ]
 ```
 
 A module is anything implementing [`Module`](src/Tutelar/Modules/Module.php)
@@ -149,8 +176,9 @@ method carries a `@covers`.
 ## Ported from the legacy bot — and still to come
 
 Done: rotating presence, per-guild channel/role config, event logging,
-`/whois` · `/invite` · `/ping`, native onboarding management, and the full
-`Moderation` module (see above).
+`/whois` · `/invite` · `/ping` · `/member json`, native onboarding management,
+join-application review with optional auto-approval, and the full `Moderation`
+module (see above).
 
 Planned as further modules (kept out of this cut deliberately):
 

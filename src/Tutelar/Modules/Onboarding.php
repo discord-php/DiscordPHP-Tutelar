@@ -65,9 +65,9 @@ final class Onboarding implements Module
 
     public function boot(Tutelar $bot): void
     {
-        $bot->application->commands->freshen()->then(fn (GlobalCommandRepository $repo) => $this->define($bot, $repo));
+        $bot->application->commands->freshen()->then(fn(GlobalCommandRepository $repo) => $this->define($bot, $repo));
 
-        $bot->listenCommand('onboarding', fn (Interaction $i) => $this->route($bot, $i));
+        $bot->listenCommand('onboarding', fn(Interaction $i) => $this->route($bot, $i));
     }
 
     private function define(Tutelar $bot, GlobalCommandRepository $repo): void
@@ -76,7 +76,7 @@ final class Onboarding implements Module
             return;
         }
 
-        $sub = static fn (string $name, string $desc): Option => (new Option($bot))
+        $sub = static fn(string $name, string $desc): Option => (new Option($bot))
             ->setType(Option::SUB_COMMAND)->setName($name)->setDescription($desc);
 
         // Guild-only (onboarding is a guild concept) and guild-install only — a
@@ -111,7 +111,7 @@ final class Onboarding implements Module
         // Every branch does a Discord API round-trip before it can reply, which
         // can outrun the 3-second interaction deadline — so defer first, then
         // edit the deferred (ephemeral) response.
-        return $interaction->acknowledgeWithResponse(true)->then(fn () => match ($action) {
+        return $interaction->acknowledgeWithResponse(true)->then(fn() => match ($action) {
             'enable' => $this->toggle($interaction, $guild, true),
             'disable' => $this->toggle($interaction, $guild, false),
             default => $this->view($bot, $interaction, $guild),
@@ -121,10 +121,10 @@ final class Onboarding implements Module
     private function view(Tutelar $bot, Interaction $interaction, Guild $guild): PromiseInterface
     {
         return $guild->getOnboarding()->then(
-            fn (OnboardingPart $onboarding) => $interaction->updateOriginalResponse(
+            fn(OnboardingPart $onboarding) => $interaction->updateOriginalResponse(
                 Tutelar::reply(false)->addEmbed($this->embed($bot, $onboarding)),
             ),
-            fn (\Throwable $e) => $interaction->updateOriginalResponse(
+            fn(\Throwable $e) => $interaction->updateOriginalResponse(
                 Tutelar::reply(false)->setContent('Could not read onboarding: ' . $e->getMessage()),
             ),
         );
@@ -135,10 +135,10 @@ final class Onboarding implements Module
         // Discord's Modify Guild Onboarding takes each field as optional, so
         // sending only `enabled` leaves the prompts and opt-in channels intact.
         return $guild->modifyOnboarding(['enabled' => $enabled], 'Tutelar /onboarding by ' . $interaction->user->id)->then(
-            fn () => $interaction->updateOriginalResponse(
+            fn() => $interaction->updateOriginalResponse(
                 Tutelar::reply(false)->setContent($enabled ? '✅ Onboarding is now **on**.' : '✅ Onboarding is now **off**.'),
             ),
-            fn (\Throwable $e) => $interaction->updateOriginalResponse(
+            fn(\Throwable $e) => $interaction->updateOriginalResponse(
                 Tutelar::reply(false)->setContent(self::describeToggleError($e->getMessage(), $enabled)),
             ),
         );
@@ -280,7 +280,7 @@ final class Onboarding implements Module
     public static function mentionList(array $ids, string $sigil): string
     {
         $shown = array_slice($ids, 0, 15);
-        $out = array_map(static fn ($id): string => '<' . $sigil . $id . '>', $shown);
+        $out = array_map(static fn($id): string => '<' . $sigil . $id . '>', $shown);
         if (count($ids) > count($shown)) {
             $out[] = '+' . (count($ids) - count($shown));
         }

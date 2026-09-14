@@ -88,9 +88,7 @@ final class Tickets implements Module
     /** What an added subject may do (read + talk, no embeds/files). */
     private const GUEST_ALLOW = self::P_VIEW | self::P_SEND | self::P_HISTORY;
 
-    public function __construct(private readonly Moderation $moderation)
-    {
-    }
+    public function __construct(private readonly Moderation $moderation) {}
 
     public function name(): string
     {
@@ -123,7 +121,7 @@ final class Tickets implements Module
                 ->save('ticket command');
         });
 
-        $bot->listenCommand('ticket', fn (Interaction $i) => $this->slashOpen($bot, $i));
+        $bot->listenCommand('ticket', fn(Interaction $i) => $this->slashOpen($bot, $i));
 
         // One dispatcher for every ticket button. `tkt:<action>:<channelId>`.
         $bot->on(Event::INTERACTION_CREATE, function (Interaction $i) use ($bot): void {
@@ -154,7 +152,7 @@ final class Tickets implements Module
         $subjectId = (string) ($opts?->get('name', 'user')?->value ?? '');
         $reason = trim((string) ($opts?->get('name', 'reason')?->value ?? ''));
 
-        return $interaction->acknowledgeWithResponse(true)->then(fn () => $this->open($bot, $guild, [
+        return $interaction->acknowledgeWithResponse(true)->then(fn() => $this->open($bot, $guild, [
             'kind' => 'manual',
             'subjectId' => $subjectId,
             'openerId' => (string) ($interaction->user->id ?? ''),
@@ -163,8 +161,8 @@ final class Tickets implements Module
             'sourceMessageId' => '',
             'content' => '',
         ])->then(
-            fn (Channel $c) => $interaction->updateOriginalResponse(Tutelar::reply(false)->setContent("✅ Ticket opened: <#{$c->id}>")),
-            fn (\Throwable $e) => $interaction->updateOriginalResponse(Tutelar::reply(false)->setContent('⚠️ Could not open a ticket — ' . Text::clip($e->getMessage(), 300))),
+            fn(Channel $c) => $interaction->updateOriginalResponse(Tutelar::reply(false)->setContent("✅ Ticket opened: <#{$c->id}>")),
+            fn(\Throwable $e) => $interaction->updateOriginalResponse(Tutelar::reply(false)->setContent('⚠️ Could not open a ticket — ' . Text::clip($e->getMessage(), 300))),
         ));
     }
 
@@ -187,8 +185,8 @@ final class Tickets implements Module
             'sourceMessageId' => $r['messageId'],
             'content' => $r['content'],
         ])->then(
-            static fn () => '✅ Sent to the mods — a private ticket has been opened for the team. Thanks for the report.',
-            static fn (\Throwable $e) => '⚠️ Could not open a ticket for that report: ' . Text::clip($e->getMessage(), 200),
+            static fn() => '✅ Sent to the mods — a private ticket has been opened for the team. Thanks for the report.',
+            static fn(\Throwable $e) => '⚠️ Could not open a ticket for that report: ' . Text::clip($e->getMessage(), 200),
         );
     }
 
@@ -238,7 +236,7 @@ final class Tickets implements Module
             ];
             $bot->getStore()->moduleSet('tickets', (string) $channel->id, $ticket);
 
-            return $channel->sendMessage($this->openingCard($ticket))->then(static fn () => $channel);
+            return $channel->sendMessage($this->openingCard($ticket))->then(static fn() => $channel);
         });
     }
 
@@ -282,7 +280,7 @@ final class Tickets implements Module
         // Defer: a member fetch + a permission-overwrite write can outrun the
         // 3s interaction window.
         return $ci->acknowledgeWithResponse(true)
-            ->then(fn () => $this->resolveMember($guild, $subjectId))
+            ->then(fn() => $this->resolveMember($guild, $subjectId))
             ->then(function (?Member $m) use ($bot, $ci, $channel, $ticket, $subjectId) {
                 if (! $m instanceof Member) {
                     return $ci->updateOriginalResponse(Tutelar::reply(false)->setContent("<@{$subjectId}> is not in this server."));
@@ -294,7 +292,7 @@ final class Tickets implements Module
                     $channel->sendMessage($this->note("➕ {$actor} added <@{$subjectId}> to this ticket — they can see and reply here now.", true));
 
                     return $ci->updateOriginalResponse(Tutelar::reply()->setContent("Added <@{$subjectId}> to the channel."));
-                }, fn (\Throwable $e) => $ci->updateOriginalResponse(Tutelar::reply(false)->setContent('Could not add them: ' . Text::clip($e->getMessage(), 200))));
+                }, fn(\Throwable $e) => $ci->updateOriginalResponse(Tutelar::reply(false)->setContent('Could not add them: ' . Text::clip($e->getMessage(), 200))));
             });
     }
 
@@ -341,7 +339,7 @@ final class Tickets implements Module
 
                         return $modalI->respondWithMessage(Tutelar::reply()->setContent("Warned <@{$subjectId}>{$tail}."), true);
                     },
-                    fn (\Throwable $e) => $modalI->respondWithMessage(Tutelar::reply(false)->setContent("Couldn't warn <@{$subjectId}>: " . Text::clip($e->getMessage(), 300)), true),
+                    fn(\Throwable $e) => $modalI->respondWithMessage(Tutelar::reply(false)->setContent("Couldn't warn <@{$subjectId}>: " . Text::clip($e->getMessage(), 300)), true),
                 );
             },
         );
@@ -367,7 +365,7 @@ final class Tickets implements Module
 
                 // Defer: the close does cross-channel IO (transcript) then a
                 // channel delete — more than the 3s modal-response window.
-                return $modalI->acknowledgeWithResponse(true)->then(fn () => $this->close($bot, $modalI, $guild, $ticket, $note));
+                return $modalI->acknowledgeWithResponse(true)->then(fn() => $this->close($bot, $modalI, $guild, $ticket, $note));
             },
         );
     }
@@ -414,8 +412,8 @@ final class Tickets implements Module
 
             // The reply lands in the ticket channel, which is about to be
             // deleted — best-effort; the transcript is the real receipt.
-            return $done->then(static fn () => $interaction->updateOriginalResponse(Tutelar::reply(false)->setContent('🎫 Ticket closed, transcript filed, channel deleted.'))->then(null, static fn () => null));
-        }, fn (\Throwable $e) => $interaction->updateOriginalResponse(
+            return $done->then(static fn() => $interaction->updateOriginalResponse(Tutelar::reply(false)->setContent('🎫 Ticket closed, transcript filed, channel deleted.'))->then(null, static fn() => null));
+        }, fn(\Throwable $e) => $interaction->updateOriginalResponse(
             Tutelar::reply(false)->setContent('⚠️ Not closing — the transcript could not be filed (' . Text::clip($e->getMessage(), 200) . '). Fix the log channel with `/config set` and try again; nothing was deleted.'),
         ));
     }
@@ -440,7 +438,7 @@ final class Tickets implements Module
             return resolve($cached);
         }
 
-        return $guild->members->fetch($userId)->then(null, static fn () => null);
+        return $guild->members->fetch($userId)->then(null, static fn() => null);
     }
 
     // --- rendering ---------------------------------------------------
@@ -454,13 +452,13 @@ final class Tickets implements Module
         }
         $content = trim((string) ($ticket['content'] ?? ''));
         if ($content !== '') {
-            $quoted = implode("\n", array_map(static fn (string $l): string => "> {$l}", explode("\n", Text::clip($content, 1000))));
+            $quoted = implode("\n", array_map(static fn(string $l): string => "> {$l}", explode("\n", Text::clip($content, 1000))));
             $lines[] = $quoted;
         }
         $lines[] = "\nStaff-only. **Close** files the transcript to the log channel and deletes this channel.";
 
         $subjectId = (string) ($ticket['subjectId'] ?? '');
-        $id = static fn (string $a): string => "tkt:{$a}:{$ticket['channelId']}";
+        $id = static fn(string $a): string => "tkt:{$a}:{$ticket['channelId']}";
         $row = ActionRow::new()
             ->addComponent(Button::new(Button::STYLE_DANGER, $id('close'))->setLabel('Close'))
             ->addComponent(Button::new(Button::STYLE_SECONDARY, $id('warn'))->setLabel('Warn user')->setDisabled($subjectId === ''))
@@ -519,8 +517,8 @@ final class Tickets implements Module
      */
     public static function renderTranscript(array $ticket): string
     {
-        $fmt = static fn (int $ts): string => gmdate('Y-m-d H:i:s', $ts) . ' UTC';
-        $strip = static fn (string $s): string => preg_replace('/<@!?(\d+)>/', '@$1', $s) ?? $s;
+        $fmt = static fn(int $ts): string => gmdate('Y-m-d H:i:s', $ts) . ' UTC';
+        $strip = static fn(string $s): string => preg_replace('/<@!?(\d+)>/', '@$1', $s) ?? $s;
 
         $out = [];
         $out[] = "Tutelar ticket #{$ticket['seq']}";

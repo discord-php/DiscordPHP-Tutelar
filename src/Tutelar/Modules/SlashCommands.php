@@ -52,16 +52,16 @@ final class SlashCommands implements Module
 
     public function boot(Tutelar $bot): void
     {
-        $bot->application->commands->freshen()->then(fn (GlobalCommandRepository $repo) => $this->define($bot, $repo));
+        $bot->application->commands->freshen()->then(fn(GlobalCommandRepository $repo) => $this->define($bot, $repo));
 
         $bot->on('heartbeat-ack', function ($time): void {
             $this->lastLatencyMs = (float) $time;
         });
 
-        $bot->listenCommand('whois', fn (Interaction $i) => $this->whois($bot, $i));
-        $bot->listenCommand('Whois', fn (Interaction $i) => $this->whois($bot, $i));   // right-click a user → Apps → Whois
-        $bot->listenCommand('invite', fn (Interaction $i) => $this->invite($bot, $i));
-        $bot->listenCommand('ping', fn (Interaction $i) => $i->respondWithMessage(
+        $bot->listenCommand('whois', fn(Interaction $i) => $this->whois($bot, $i));
+        $bot->listenCommand('Whois', fn(Interaction $i) => $this->whois($bot, $i));   // right-click a user → Apps → Whois
+        $bot->listenCommand('invite', fn(Interaction $i) => $this->invite($bot, $i));
+        $bot->listenCommand('ping', fn(Interaction $i) => $i->respondWithMessage(
             Tutelar::reply(false)->setContent($this->lastLatencyMs === null
                 ? '🏓 pong (no heartbeat sample yet)'
                 : sprintf('🏓 pong — gateway round-trip ~%dms', (int) round($this->lastLatencyMs))),

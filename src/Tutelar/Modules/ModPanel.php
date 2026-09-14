@@ -71,8 +71,7 @@ final class ModPanel implements Module
     public function __construct(
         private readonly Moderation $moderation,
         private readonly ?Tickets $tickets = null,
-    ) {
-    }
+    ) {}
 
     public function name(): string
     {
@@ -122,9 +121,9 @@ final class ModPanel implements Module
             }
         });
 
-        $bot->listenCommand('Moderate', fn (Interaction $i) => $this->open($bot, $i, (string) ($i->data->target_id ?? '')));
-        $bot->listenCommand('modpanel', fn (Interaction $i) => $this->open($bot, $i, (string) ($i->data->options?->first()?->value ?? '')));
-        $bot->listenCommand('Report to mods', fn (Interaction $i) => $this->report($bot, $i));
+        $bot->listenCommand('Moderate', fn(Interaction $i) => $this->open($bot, $i, (string) ($i->data->target_id ?? '')));
+        $bot->listenCommand('modpanel', fn(Interaction $i) => $this->open($bot, $i, (string) ($i->data->options?->first()?->value ?? '')));
+        $bot->listenCommand('Report to mods', fn(Interaction $i) => $this->report($bot, $i));
 
         // One dispatcher for every panel button. Both flows use stable
         // custom_ids (`mp:` for the ephemeral member panel, `mpr:` for the
@@ -159,7 +158,7 @@ final class ModPanel implements Module
         }
 
         return $this->resolveMember($guild, $targetId)->then(
-            fn (?Member $m) => $interaction->respondWithMessage($this->render($bot, $guild, $targetId, $m, null), true),
+            fn(?Member $m) => $interaction->respondWithMessage($this->render($bot, $guild, $targetId, $m, null), true),
         );
     }
 
@@ -205,7 +204,7 @@ final class ModPanel implements Module
             && $member->communication_disabled_until !== null
             && $member->communication_disabled_until->isFuture();
 
-        $btn = static fn (string $action, string $label, int $style, bool $disabled = false): Button => Button::new($style, "mp:{$action}:{$targetId}")
+        $btn = static fn(string $action, string $label, int $style, bool $disabled = false): Button => Button::new($style, "mp:{$action}:{$targetId}")
             ->setLabel($label)
             ->setDisabled($disabled);
 
@@ -239,7 +238,7 @@ final class ModPanel implements Module
         // `refresh` / `modlogs` never mutate — no guard, no modal.
         if ($action === 'refresh') {
             return $this->resolveMember($guild, $targetId)->then(
-                fn (?Member $m) => $ci->updateMessage($this->render($bot, $guild, $targetId, $m, '🔄 Refreshed.')),
+                fn(?Member $m) => $ci->updateMessage($this->render($bot, $guild, $targetId, $m, '🔄 Refreshed.')),
             );
         }
         if ($action === 'modlogs') {
@@ -309,8 +308,8 @@ final class ModPanel implements Module
         $modId = (string) ($interaction->user->id ?? '');
 
         return $this->moderation->actOnMember($bot, $guild, $action, $targetId, $modId, $reason, $seconds)->then(
-            fn (array $case) => $this->resolveMember($guild, $targetId)->then(
-                fn (?Member $m) => $interaction->updateMessage($this->render(
+            fn(array $case) => $this->resolveMember($guild, $targetId)->then(
+                fn(?Member $m) => $interaction->updateMessage($this->render(
                     $bot,
                     $guild,
                     $targetId,
@@ -318,7 +317,7 @@ final class ModPanel implements Module
                     $this->statusLine($action, $case, $duration),
                 )),
             ),
-            fn (\Throwable $e) => $interaction->respondWithMessage(
+            fn(\Throwable $e) => $interaction->respondWithMessage(
                 Tutelar::reply(false)->setContent("Couldn't {$action} <@{$targetId}>: " . Text::clip($e->getMessage(), 300)),
                 true,
             ),
@@ -369,7 +368,7 @@ final class ModPanel implements Module
             return resolve($cached);
         }
 
-        return $guild->members->fetch($userId)->then(null, static fn () => null);
+        return $guild->members->fetch($userId)->then(null, static fn() => null);
     }
 
     // --- report to mods --------------------------------------------------
@@ -395,13 +394,13 @@ final class ModPanel implements Module
 
         // Preferred path: spin up a private ticket channel for the mod team.
         if ($this->tickets !== null) {
-            return $interaction->acknowledgeWithResponse(true)->then(fn () => $this->tickets->openFromReport($bot, $guild, [
+            return $interaction->acknowledgeWithResponse(true)->then(fn() => $this->tickets->openFromReport($bot, $guild, [
                 'authorId' => $authorId,
                 'reporterId' => (string) ($interaction->user->id ?? ''),
                 'channelId' => $channelId,
                 'messageId' => $messageId,
                 'content' => $content,
-            ])->then(fn (string $msg) => $interaction->updateOriginalResponse(Tutelar::reply(false)->setContent($msg))));
+            ])->then(fn(string $msg) => $interaction->updateOriginalResponse(Tutelar::reply(false)->setContent($msg))));
         }
 
         $logId = $bot->guild($guild->id)->channel('modlog') ?? $bot->guild($guild->id)->channel('log');
@@ -438,8 +437,8 @@ final class ModPanel implements Module
         // Defer (15-min window), post the card, then report the real outcome —
         // never tell the reporter "sent" when the write actually failed.
         return $interaction->acknowledgeWithResponse(true)->then(
-            fn () => $channel->sendMessage($panel)->then(
-                fn () => $interaction->updateOriginalResponse(Tutelar::reply(false)->setContent('✅ Sent to the mods. Thanks for the report.')),
+            fn() => $channel->sendMessage($panel)->then(
+                fn() => $interaction->updateOriginalResponse(Tutelar::reply(false)->setContent('✅ Sent to the mods. Thanks for the report.')),
                 function (\Throwable $e) use ($bot, $interaction, $logId): PromiseInterface {
                     $bot->logger->warning('[mod-panel] report card post failed: ' . $e->getMessage());
                     $hint = str_contains($e->getMessage(), '50001') || str_contains($e->getMessage(), 'Missing Access')
@@ -470,7 +469,7 @@ final class ModPanel implements Module
         $meta .= " · in <#{$d['channelId']}>";
         $lines[] = $meta;
         if (trim($d['content']) !== '') {
-            $quoted = implode("\n", array_map(static fn (string $l): string => "> {$l}", explode("\n", Text::clip($d['content'], 1200))));
+            $quoted = implode("\n", array_map(static fn(string $l): string => "> {$l}", explode("\n", Text::clip($d['content'], 1200))));
             $lines[] = $quoted;
         }
         $lines[] = "[Jump to message]({$jump})";
@@ -488,7 +487,7 @@ final class ModPanel implements Module
             ->addComponent($container);
 
         if ($d['status'] === null && $d['authorId'] !== '') {
-            $id = fn (string $a): string => "mpr:{$a}:{$d['authorId']}:{$d['channelId']}:{$d['messageId']}";
+            $id = fn(string $a): string => "mpr:{$a}:{$d['authorId']}:{$d['channelId']}:{$d['messageId']}";
             $msg->addComponent(ActionRow::new()
                 ->addComponent(Button::new(Button::STYLE_SECONDARY, $id('timeout'))->setLabel('Timeout'))
                 ->addComponent(Button::new(Button::STYLE_DANGER, $id('kick'))->setLabel('Kick'))
@@ -550,14 +549,14 @@ final class ModPanel implements Module
                 }
 
                 return $this->moderation->actOnMember($bot, $guild, $action, $authorId, (string) ($modalI->user->id ?? ''), $reason, $seconds)->then(
-                    fn (array $case) => $modalI->updateMessage($this->reportPanel($this->resolvedCard(
+                    fn(array $case) => $modalI->updateMessage($this->reportPanel($this->resolvedCard(
                         $guild,
                         $authorId,
                         $channelId,
                         $messageId,
                         self::statusLine($action, $case, $duration !== '' ? $duration : null) . " by {$modMention}",
                     ))),
-                    fn (\Throwable $e) => $modalI->respondWithMessage(
+                    fn(\Throwable $e) => $modalI->respondWithMessage(
                         Tutelar::reply(false)->setContent("Couldn't {$action} <@{$authorId}>: " . Text::clip($e->getMessage(), 300)),
                         true,
                     ),

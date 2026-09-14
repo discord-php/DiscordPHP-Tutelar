@@ -72,9 +72,9 @@ final class Configuration implements Module
 
     public function boot(Tutelar $bot): void
     {
-        $bot->application->commands->freshen()->then(fn (GlobalCommandRepository $repo) => $this->define($bot, $repo));
+        $bot->application->commands->freshen()->then(fn(GlobalCommandRepository $repo) => $this->define($bot, $repo));
 
-        $bot->listenCommand('config', fn (Interaction $i) => $this->route($bot, $i));
+        $bot->listenCommand('config', fn(Interaction $i) => $this->route($bot, $i));
     }
 
     private function define(Tutelar $bot, GlobalCommandRepository $repo): void
@@ -96,7 +96,7 @@ final class Configuration implements Module
             return $o;
         };
 
-        $sub = static fn (string $name, string $desc): Option => (new Option($bot))
+        $sub = static fn(string $name, string $desc): Option => (new Option($bot))
             ->setType(Option::SUB_COMMAND)->setName($name)->setDescription($desc);
 
         CommandBuilder::new()
@@ -144,7 +144,7 @@ final class Configuration implements Module
 
         $sub = $interaction->data->options?->first();
         $name = (string) ($sub?->name ?? '');
-        $arg = static fn (string $k): mixed => $sub?->options?->get('name', $k)?->value;
+        $arg = static fn(string $k): mixed => $sub?->options?->get('name', $k)?->value;
 
         return match ($name) {
             'view' => $this->view($bot, $interaction, $guild),

@@ -74,9 +74,7 @@ final class Moderation implements Module
     /** How often the scheduled-reversal sweep runs. */
     private const SWEEP_SECONDS = 30;
 
-    public function __construct(private readonly CaseBook $cases)
-    {
-    }
+    public function __construct(private readonly CaseBook $cases) {}
 
     public function name(): string
     {
@@ -85,13 +83,13 @@ final class Moderation implements Module
 
     public function boot(Tutelar $bot): void
     {
-        $bot->application->commands->freshen()->then(fn (GlobalCommandRepository $repo) => $this->define($bot, $repo));
+        $bot->application->commands->freshen()->then(fn(GlobalCommandRepository $repo) => $this->define($bot, $repo));
 
-        $bot->listenCommand('mod', fn (Interaction $i) => $this->route($bot, $i));
+        $bot->listenCommand('mod', fn(Interaction $i) => $this->route($bot, $i));
 
         // Scheduled tempban / timeout expiry. Discord auto-lifts a member
         // timeout, but not a ban, and it never posts a "case closed" note.
-        $bot->getLoop()->addPeriodicTimer(self::SWEEP_SECONDS, fn () => $this->sweep($bot));
+        $bot->getLoop()->addPeriodicTimer(self::SWEEP_SECONDS, fn() => $this->sweep($bot));
     }
 
     // --- command definition ------------------------------------------------
@@ -104,14 +102,14 @@ final class Moderation implements Module
             return;
         }
 
-        $sub = fn (string $name, string $desc): Option => (new Option($bot))
+        $sub = fn(string $name, string $desc): Option => (new Option($bot))
             ->setType(Option::SUB_COMMAND)->setName($name)->setDescription($desc);
-        $opt = fn (string $name, string $desc, int $type, bool $required = false): Option => (new Option($bot))
+        $opt = fn(string $name, string $desc, int $type, bool $required = false): Option => (new Option($bot))
             ->setType($type)->setName($name)->setDescription($desc)->setRequired($required);
 
-        $user = fn (bool $required = true) => $opt('user', 'The member.', Option::USER, $required);
-        $reason = fn () => $opt('reason', 'Shown in the mod log and the audit log.', Option::STRING);
-        $dur = fn (string $d) => $opt('duration', $d, Option::STRING);
+        $user = fn(bool $required = true) => $opt('user', 'The member.', Option::USER, $required);
+        $reason = fn() => $opt('reason', 'Shown in the mod log and the audit log.', Option::STRING);
+        $dur = fn(string $d) => $opt('duration', $d, Option::STRING);
 
         CommandBuilder::new()
             ->setName('mod')
@@ -162,7 +160,7 @@ final class Moderation implements Module
 
         $sub = $interaction->data->options?->first();
         $name = (string) ($sub?->name ?? '');
-        $arg = static fn (string $k, mixed $default = null): mixed => $sub?->options?->get('name', $k)?->value ?? $default;
+        $arg = static fn(string $k, mixed $default = null): mixed => $sub?->options?->get('name', $k)?->value ?? $default;
 
         // Reads answer from cache/store immediately; writes defer (they make an
         // API call before they can reply).
@@ -173,7 +171,7 @@ final class Moderation implements Module
             'note' => $this->note($bot, $interaction, $guild, (string) $arg('user'), (string) $arg('text')),
             'reason' => $this->editReason($bot, $interaction, $guild, (int) $arg('case'), (string) $arg('text')),
             'delwarn' => $this->delCase($bot, $interaction, $guild, (int) $arg('case')),
-            default => $interaction->acknowledgeWithResponse(true)->then(fn () => match ($name) {
+            default => $interaction->acknowledgeWithResponse(true)->then(fn() => match ($name) {
                 'warn' => $this->warn($bot, $interaction, $guild, (string) $arg('user'), (string) $arg('reason')),
                 'kick' => $this->kick($bot, $interaction, $guild, (string) $arg('user'), (string) $arg('reason', '')),
                 'ban' => $this->ban($bot, $interaction, $guild, (string) ($arg('user') ?? $arg('user_id', '')), (string) $arg('reason', ''), $arg('duration'), $arg('delete_days')),
@@ -226,7 +224,7 @@ final class Moderation implements Module
                 $this->postCase($bot, $guild, $autoCase);
 
                 return $i->updateOriginalResponse(Tutelar::reply(false)->setContent("⚠️ Warned <@{$userId}>{$tail} · case #" . ($autoCase['id'] - 1)));
-            }, fn (\Throwable $e) => $i->updateOriginalResponse(Tutelar::reply(false)->setContent("⚠️ Warned <@{$userId}>{$tail}, but the auto-{$step['action']} failed: {$e->getMessage()}")));
+            }, fn(\Throwable $e) => $i->updateOriginalResponse(Tutelar::reply(false)->setContent("⚠️ Warned <@{$userId}>{$tail}, but the auto-{$step['action']} failed: {$e->getMessage()}")));
         }
 
         return $i->updateOriginalResponse(Tutelar::reply(false)->setContent("⚠️ Warned <@{$userId}>{$tail} · case #{$case['id']}"));
@@ -245,7 +243,7 @@ final class Moderation implements Module
 
                 return $i->updateOriginalResponse(Tutelar::reply(false)->setContent("👢 Kicked <@{$userId}> · case #{$case['id']}"));
             },
-            fn (\Throwable $e) => $i->updateOriginalResponse(Tutelar::reply(false)->setContent("Couldn't kick: {$e->getMessage()}")),
+            fn(\Throwable $e) => $i->updateOriginalResponse(Tutelar::reply(false)->setContent("Couldn't kick: {$e->getMessage()}")),
         );
     }
 
@@ -273,7 +271,7 @@ final class Moderation implements Module
 
                 return $i->updateOriginalResponse(Tutelar::reply(false)->setContent("🔨 Banned <@{$userId}> {$for} · case #{$case['id']}"));
             },
-            fn (\Throwable $e) => $i->updateOriginalResponse(Tutelar::reply(false)->setContent("Couldn't ban: {$e->getMessage()}")),
+            fn(\Throwable $e) => $i->updateOriginalResponse(Tutelar::reply(false)->setContent("Couldn't ban: {$e->getMessage()}")),
         );
     }
 
@@ -287,7 +285,7 @@ final class Moderation implements Module
 
                 return $i->updateOriginalResponse(Tutelar::reply(false)->setContent("✅ Unbanned <@{$userId}> · case #{$case['id']}"));
             },
-            fn (\Throwable $e) => $i->updateOriginalResponse(Tutelar::reply(false)->setContent("Couldn't unban: {$e->getMessage()} (are they actually banned?)")),
+            fn(\Throwable $e) => $i->updateOriginalResponse(Tutelar::reply(false)->setContent("Couldn't unban: {$e->getMessage()} (are they actually banned?)")),
         );
     }
 
@@ -310,14 +308,14 @@ final class Moderation implements Module
 
                 return $i->updateOriginalResponse(Tutelar::reply(false)->setContent('🔇 Timed out <@' . $userId . '> for ' . Duration::humanize($seconds) . " · case #{$case['id']}"));
             },
-            fn (\Throwable $e) => $i->updateOriginalResponse(Tutelar::reply(false)->setContent("Couldn't time out: {$e->getMessage()}")),
+            fn(\Throwable $e) => $i->updateOriginalResponse(Tutelar::reply(false)->setContent("Couldn't time out: {$e->getMessage()}")),
         );
     }
 
     private function untimeout(Tutelar $bot, Interaction $i, Guild $guild, string $userId, string $reason): PromiseInterface
     {
         return $this->member($guild, $userId)->then(
-            fn (?Member $m) => $m?->timeoutMember(null, $this->auditReason($i, $reason)) ?? resolve(null),
+            fn(?Member $m) => $m?->timeoutMember(null, $this->auditReason($i, $reason)) ?? resolve(null),
         )->then(
             function () use ($bot, $guild, $userId, $i, $reason) {
                 $this->cases->clearReversal($guild->id, $userId);
@@ -326,7 +324,7 @@ final class Moderation implements Module
 
                 return $i->updateOriginalResponse(Tutelar::reply(false)->setContent("🔈 Cleared the timeout on <@{$userId}> · case #{$case['id']}"));
             },
-            fn (\Throwable $e) => $i->updateOriginalResponse(Tutelar::reply(false)->setContent("Couldn't clear the timeout: {$e->getMessage()}")),
+            fn(\Throwable $e) => $i->updateOriginalResponse(Tutelar::reply(false)->setContent("Couldn't clear the timeout: {$e->getMessage()}")),
         );
     }
 
@@ -412,10 +410,10 @@ final class Moderation implements Module
             }
 
             return $channel->deleteMessages($keep, 'Purge by ' . $i->user->id)->then(
-                fn () => $i->updateOriginalResponse(Tutelar::reply(false)->setContent('🧹 Deleted ' . count($keep) . ' message(s).')),
-                fn (\Throwable $e) => $i->updateOriginalResponse(Tutelar::reply(false)->setContent("Purge failed: {$e->getMessage()} (messages older than 14 days can't be bulk-deleted).")),
+                fn() => $i->updateOriginalResponse(Tutelar::reply(false)->setContent('🧹 Deleted ' . count($keep) . ' message(s).')),
+                fn(\Throwable $e) => $i->updateOriginalResponse(Tutelar::reply(false)->setContent("Purge failed: {$e->getMessage()} (messages older than 14 days can't be bulk-deleted).")),
             );
-        }, fn (\Throwable $e) => $i->updateOriginalResponse(Tutelar::reply(false)->setContent("Couldn't read the channel: {$e->getMessage()}")));
+        }, fn(\Throwable $e) => $i->updateOriginalResponse(Tutelar::reply(false)->setContent("Couldn't read the channel: {$e->getMessage()}")));
     }
 
     private function slowmode(Tutelar $bot, Interaction $i, Guild $guild, int $seconds): PromiseInterface
@@ -429,8 +427,8 @@ final class Moderation implements Module
         $channel->rate_limit_per_user = $seconds;
 
         return $guild->channels->save($channel)->then(
-            fn () => $i->updateOriginalResponse(Tutelar::reply(false)->setContent($seconds === 0 ? '🐢 Slowmode off.' : "🐢 Slowmode set to {$seconds}s.")),
-            fn (\Throwable $e) => $i->updateOriginalResponse(Tutelar::reply(false)->setContent("Couldn't set slowmode: {$e->getMessage()}")),
+            fn() => $i->updateOriginalResponse(Tutelar::reply(false)->setContent($seconds === 0 ? '🐢 Slowmode off.' : "🐢 Slowmode set to {$seconds}s.")),
+            fn(\Throwable $e) => $i->updateOriginalResponse(Tutelar::reply(false)->setContent("Couldn't set slowmode: {$e->getMessage()}")),
         );
     }
 
@@ -457,7 +455,7 @@ final class Moderation implements Module
 
                     return $i->updateOriginalResponse(Tutelar::reply(false)->setContent("🔒 Locked <#{$channel->id}> · case #{$case['id']}"));
                 },
-                fn (\Throwable $e) => $i->updateOriginalResponse(Tutelar::reply(false)->setContent("Couldn't lock: {$e->getMessage()}")),
+                fn(\Throwable $e) => $i->updateOriginalResponse(Tutelar::reply(false)->setContent("Couldn't lock: {$e->getMessage()}")),
             );
         }
 
@@ -474,7 +472,7 @@ final class Moderation implements Module
 
                 return $i->updateOriginalResponse(Tutelar::reply(false)->setContent("🔓 Unlocked <#{$channel->id}> · case #{$case['id']}"));
             },
-            fn (\Throwable $e) => $i->updateOriginalResponse(Tutelar::reply(false)->setContent("Couldn't unlock: {$e->getMessage()}")),
+            fn(\Throwable $e) => $i->updateOriginalResponse(Tutelar::reply(false)->setContent("Couldn't unlock: {$e->getMessage()}")),
         );
     }
 
@@ -491,7 +489,7 @@ final class Moderation implements Module
 
             $undo = $r['type'] === 'ban'
                 ? $guild->unban($r['user'])
-                : $this->member($guild, $r['user'])->then(fn (?Member $m) => $m?->timeoutMember(null, 'Timeout expired') ?? resolve(null));
+                : $this->member($guild, $r['user'])->then(fn(?Member $m) => $m?->timeoutMember(null, 'Timeout expired') ?? resolve(null));
 
             $undo->then(function () use ($bot, $guild, $r) {
                 $case = $this->cases->add($guild->id, $r['type'] === 'ban' ? 'unban' : 'untimeout', $r['user'], (string) $bot->id, "Scheduled expiry of case #{$r['case']}");
@@ -547,7 +545,7 @@ final class Moderation implements Module
             'unban' => $guild->unban($targetId),
             'timeout' => $this->applyTimeout($guild, $targetId, $seconds, $auditReason),
             'untimeout' => $this->member($guild, $targetId)->then(
-                static fn (?Member $m) => $m instanceof Member ? $m->timeoutMember(null, $auditReason) : resolve(null),
+                static fn(?Member $m) => $m instanceof Member ? $m->timeoutMember(null, $auditReason) : resolve(null),
             ),
             'warn', 'note' => resolve(null),
             default => reject(new \InvalidArgumentException("Unknown action {$kind}")),
@@ -590,12 +588,12 @@ final class Moderation implements Module
     {
         $cached = $guild->members->get('id', $userId);
 
-        return $cached instanceof Member ? resolve($cached) : $guild->members->fetch($userId)->then(null, static fn () => null);
+        return $cached instanceof Member ? resolve($cached) : $guild->members->fetch($userId)->then(null, static fn() => null);
     }
 
     private function applyKick(Guild $guild, string $userId, string $reason): PromiseInterface
     {
-        return $this->member($guild, $userId)->then(fn (?Member $m) => $m instanceof Member ? $m->kick($reason) : resolve(null));
+        return $this->member($guild, $userId)->then(fn(?Member $m) => $m instanceof Member ? $m->kick($reason) : resolve(null));
     }
 
     private function applyBan(Guild $guild, string $userId, string $reason, ?int $seconds, ?int $deleteDays): PromiseInterface
@@ -612,7 +610,7 @@ final class Moderation implements Module
     {
         $until = Carbon::now()->addSeconds(Duration::clampToTimeout($seconds));
 
-        return $this->member($guild, $userId)->then(fn (?Member $m) => $m instanceof Member ? $m->timeoutMember($until, $reason) : resolve(null));
+        return $this->member($guild, $userId)->then(fn(?Member $m) => $m instanceof Member ? $m->timeoutMember($until, $reason) : resolve(null));
     }
 
     // --- pure helpers (unit-tested) ----------------------------
@@ -748,6 +746,6 @@ final class Moderation implements Module
             return;
         }
         $bot->getChannel($channelId)?->sendMessage(Tutelar::reply(false)->addEmbed($this->caseEmbed($bot, $case)))
-            ->then(null, static fn (\Throwable $e) => $bot->logger->warning('[moderation] mod-log post failed: ' . $e->getMessage()));
+            ->then(null, static fn(\Throwable $e) => $bot->logger->warning('[moderation] mod-log post failed: ' . $e->getMessage()));
     }
 }

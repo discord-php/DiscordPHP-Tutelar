@@ -92,12 +92,10 @@ final class PermissionsTest extends TestCase
 
     public function testForInteractionReadsTheRawMemberPermissionsBitfield(): void
     {
-        $withBits = static fn (string $bits): object => new class($bits) {
+        $withBits = static fn(string $bits): object => new class ($bits) {
             public ?object $member = null;
 
-            public function __construct(private string $bits)
-            {
-            }
+            public function __construct(private string $bits) {}
 
             public function getRawAttributes(): array
             {

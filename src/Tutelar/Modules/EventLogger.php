@@ -87,9 +87,9 @@ final class EventLogger implements Module
             $this->send($bot, $first->guild_id ?? null, $embed);
         });
 
-        $bot->on(Event::GUILD_MEMBER_ADD, fn (Member $m) => $this->send($bot, $m->guild_id, $this->userEmbed($bot, $m->user, 'Member joined')?->addFieldValues(...Text::field('Account created', '<t:' . (int) $m->user->createdTimestamp() . ':R>', true))));
+        $bot->on(Event::GUILD_MEMBER_ADD, fn(Member $m) => $this->send($bot, $m->guild_id, $this->userEmbed($bot, $m->user, 'Member joined')?->addFieldValues(...Text::field('Account created', '<t:' . (int) $m->user->createdTimestamp() . ':R>', true))));
 
-        $bot->on(Event::GUILD_MEMBER_REMOVE, fn (Member $m) => $this->send($bot, $m->guild_id, $this->userEmbed($bot, $m->user, 'Member left')));
+        $bot->on(Event::GUILD_MEMBER_REMOVE, fn(Member $m) => $this->send($bot, $m->guild_id, $this->userEmbed($bot, $m->user, 'Member left')));
 
         // Member update fires for many reasons (boost, pending, timeout, avatar);
         // we only report nickname and role changes, and only with the cached
@@ -107,9 +107,9 @@ final class EventLogger implements Module
             }
         });
 
-        $bot->on(Event::GUILD_BAN_ADD, fn (Ban $b) => $this->send($bot, $b->guild_id, $this->userEmbed($bot, $b->user, 'Member banned', $b->reason ? ['Reason' => $b->reason] : [])));
+        $bot->on(Event::GUILD_BAN_ADD, fn(Ban $b) => $this->send($bot, $b->guild_id, $this->userEmbed($bot, $b->user, 'Member banned', $b->reason ? ['Reason' => $b->reason] : [])));
 
-        $bot->on(Event::GUILD_BAN_REMOVE, fn (Ban $b) => $this->send($bot, $b->guild_id, $this->userEmbed($bot, $b->user, 'Ban lifted')));
+        $bot->on(Event::GUILD_BAN_REMOVE, fn(Ban $b) => $this->send($bot, $b->guild_id, $this->userEmbed($bot, $b->user, 'Ban lifted')));
     }
 
     // --- pure helpers (unit-tested) --------------------------------------

@@ -19,9 +19,11 @@ use Monolog\Handler\StreamHandler;
 use Monolog\Level;
 use Monolog\Logger;
 use Tutelar\Moderation\CaseBook;
+use Tutelar\Modules\Applications;
 use Tutelar\Modules\Configuration;
 use Tutelar\Modules\EventLogger;
 use Tutelar\Modules\Help;
+use Tutelar\Modules\MemberJson;
 use Tutelar\Modules\Moderation;
 use Tutelar\Modules\ModPanel;
 use Tutelar\Modules\Onboarding;
@@ -105,7 +107,9 @@ $store = new Store($statePath);
 
 // GUILD_MEMBERS and MESSAGE_CONTENT are privileged — enable them for the
 // application in the Discord Developer Portal or the gateway will refuse the
-// connection. They power EventLogger's member events and message diffs;
+// connection. They power EventLogger's member events and message diffs, and
+// GUILD_MEMBERS also carries the join-request events Applications listens for
+// (Discord additionally only sends those to a bot holding Kick Members);
 // GUILD_MODERATION (ban add/remove) is not privileged.
 $bot = new Tutelar($config, $store, [
     'logger' => $logger,
@@ -117,7 +121,8 @@ $bot = new Tutelar($config, $store, [
     'loadAllMembers' => false,
 ]);
 
-$moderation = new Moderation(new CaseBook(getenv('TUTELAR_MODERATION_PATH') ?: ($baseDir . '/var/moderation.json')));
+$caseBook = new CaseBook(getenv('TUTELAR_MODERATION_PATH') ?: ($baseDir . '/var/moderation.json'));
+$moderation = new Moderation($caseBook);
 $tickets = new Tickets($moderation);
 
 $bot
@@ -126,6 +131,8 @@ $bot
     ->addModule(new Help())
     ->addModule(new Configuration())
     ->addModule(new Onboarding())
+    ->addModule(new Applications($caseBook))
+    ->addModule(new MemberJson())
     ->addModule($moderation)
     ->addModule($tickets)
     ->addModule(new ModPanel($moderation, $tickets))

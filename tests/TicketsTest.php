@@ -60,8 +60,8 @@ final class TicketsTest extends TestCase
         $this->assertSame(1024, (int) $ov[1]['allow'] & 1024, 'bot can view');
 
         // the two staff roles, as role overwrites, allowing view+send+history.
-        $roleRows = array_values(array_filter($ov, static fn (array $r): bool => $r['type'] === 0 && $r['id'] !== self::EVERYONE));
-        $this->assertSame(['200', '201'], array_map(static fn (array $r): string => $r['id'], $roleRows));
+        $roleRows = array_values(array_filter($ov, static fn(array $r): bool => $r['type'] === 0 && $r['id'] !== self::EVERYONE));
+        $this->assertSame(['200', '201'], array_map(static fn(array $r): string => $r['id'], $roleRows));
         foreach ($roleRows as $r) {
             $this->assertSame(1024, (int) $r['allow'] & 1024);
             $this->assertSame(2048, (int) $r['allow'] & 2048);
@@ -78,14 +78,14 @@ final class TicketsTest extends TestCase
         $this->assertSame(0, (int) $guest['allow'] & 16, 'a guest never gets manage_channels');
 
         $botAsGuest = Tickets::overwrites(self::EVERYONE, self::BOT, [], self::BOT);
-        $memberRows = array_filter($botAsGuest, static fn (array $r): bool => $r['type'] === 1);
+        $memberRows = array_filter($botAsGuest, static fn(array $r): bool => $r['type'] === 1);
         $this->assertCount(1, $memberRows, 'the bot is not added twice when it is also passed as the guest');
     }
 
     public function testOverwritesDropAStaffRoleThatEqualsEveryone(): void
     {
         $ov = Tickets::overwrites(self::EVERYONE, self::BOT, [self::EVERYONE, '200'], null);
-        $roleIds = array_map(static fn (array $r): string => $r['id'], array_filter($ov, static fn (array $r): bool => $r['type'] === 0));
+        $roleIds = array_map(static fn(array $r): string => $r['id'], array_filter($ov, static fn(array $r): bool => $r['type'] === 0));
         $this->assertSame([self::EVERYONE, '200'], array_values($roleIds));
         // …and the @everyone row is still the deny-view one, not an allow.
         $this->assertSame('1024', $ov[0]['deny']);

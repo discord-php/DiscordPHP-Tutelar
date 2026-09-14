@@ -23,7 +23,7 @@ final class HelpTest extends TestCase
 {
     private function titles(bool $isModerator, bool $isManager): array
     {
-        return array_map(static fn (array $s): string => $s['tier'], Help::sectionsFor($isModerator, $isManager));
+        return array_map(static fn(array $s): string => $s['tier'], Help::sectionsFor($isModerator, $isManager));
     }
 
     public function testAPlainMemberOnlySeesThePublicSection(): void
@@ -36,10 +36,10 @@ final class HelpTest extends TestCase
         $this->assertSame(['everyone', 'moderator'], $this->titles(isModerator: true, isManager: false));
     }
 
-    public function testAManagerSeesOnboardingAndConfigButNotModeration(): void
+    public function testAManagerSeesOnboardingApplicationsAndConfigButNotModeration(): void
     {
         // Manage Server is not one of the moderation permissions on its own.
-        $this->assertSame(['everyone', 'manager', 'manager'], $this->titles(isModerator: false, isManager: true));
+        $this->assertSame(['everyone', 'manager', 'manager', 'manager'], $this->titles(isModerator: false, isManager: true));
     }
 
     public function testAnAdministratorSeesEverySection(): void

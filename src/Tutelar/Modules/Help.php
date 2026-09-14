@@ -51,6 +51,7 @@ final class Help implements Module
             'lines' => [
                 '`/help` — this guide.',
                 '`/whois [user]` (or right-click a member → Apps → **Whois**) — account age, join date and roles for a member (or yourself).',
+                '`/member json [user]` (or right-click a member → Apps → **Member JSON**) — the raw `Member` object for this server as JSON, for bug reports and debugging.',
                 '`/invite` — a link to add Tutelar to another server.',
                 '`/ping` — the bot\'s current gateway latency.',
             ],
@@ -78,6 +79,8 @@ final class Help implements Module
                 '`Report to mods` — any member: right-click a message → Apps → Report to mods. It opens a **private ticket channel** for the mod team (Close / Warn user / Add user).',
                 '**Tickets**',
                 '`/ticket [user] [reason]` — open a private staff channel at the server root, visible only to roles with a moderator permission. **Close** files the full transcript to the mod-log as a `.txt` and deletes the channel.',
+                '**Applications**',
+                'When someone submits this server\'s join application, Tutelar posts a card to the log channel that pings the server owner, with **Approve** / **Deny** buttons (Deny asks for an optional reason). Rules for approving them automatically are `/applications` (Manage Server).',
                 'Every action writes a numbered case to the mod-log channel (`/config set` → *Mod-log channel*).',
             ],
         ],
@@ -88,6 +91,16 @@ final class Help implements Module
                 '`/onboarding view` — the server\'s current onboarding prompts and what each option grants.',
                 '`/onboarding enable` · `/onboarding disable` — turn Discord\'s built-in onboarding / Channels & Roles flow on or off.',
                 'Editing the prompts themselves is **Server Settings → Onboarding**. Enable/disable needs the bot to hold Manage Server + Manage Roles; **enabling** also needs the server itself to qualify — Community on, ≥7 channels `@everyone` can see, ≥5 of them sendable.',
+            ],
+        ],
+        [
+            'tier' => 'manager',
+            'title' => 'Applications — `/applications` (needs Manage Server)',
+            'lines' => [
+                '`/applications view` — the current auto-approval rules, and where applications are announced.',
+                '`/applications rules auto:<true|false> [min_account_age] [require_answers] [clean_record]` — approve an application without a human when it passes every rule: the account is old enough, every required question was answered, and the applicant has no moderation cases here.',
+                'Auto-approval is **off** by default — until you turn it on, every application waits for Approve / Deny on its card.',
+                'Needs the **Kick Members** permission: Discord only sends join-request events to a bot that has it, and it\'s the same permission approving one takes.',
             ],
         ],
         [
@@ -125,7 +138,7 @@ final class Help implements Module
                 ->save('help command');
         });
 
-        $bot->listenCommand('help', fn (Interaction $i) => $this->show($bot, $i));
+        $bot->listenCommand('help', fn(Interaction $i) => $this->show($bot, $i));
     }
 
     private function show(Tutelar $bot, Interaction $interaction): PromiseInterface
@@ -164,7 +177,7 @@ final class Help implements Module
 
         return array_values(array_filter(
             self::SECTIONS,
-            static fn (array $s): bool => $allowed[$s['tier']] ?? false,
+            static fn(array $s): bool => $allowed[$s['tier']] ?? false,
         ));
     }
 
