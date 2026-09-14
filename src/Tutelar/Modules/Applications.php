@@ -17,8 +17,10 @@ use Discord\Builders\CommandBuilder;
 use Discord\Builders\Components\ActionRow;
 use Discord\Builders\Components\Button;
 use Discord\Builders\Components\Label;
+use Discord\Builders\Components\MentionableSelect;
 use Discord\Builders\Components\TextInput;
 use Discord\Builders\MessageBuilder;
+use Discord\Parts\Channel\Message\AllowedMentions;
 use Discord\Parts\Embed\Embed;
 use Discord\Parts\Guild\Guild;
 use Discord\Parts\Guild\GuildJoinRequest;
@@ -42,9 +44,16 @@ use function React\Promise\resolve;
  *
  * When a member-verification form is submitted Discord sends
  * `GUILD_JOIN_REQUEST_CREATE` / `_UPDATE`. Tutelar posts a card to the guild's
- * log channel that **pings the server owner**, shows who applied, how old the
- * account is and what they answered, and carries **Approve** / **Deny** buttons
- * for the staff team.
+ * log channel that **pings whoever the server nominated**, shows who applied,
+ * how old the account is and what they answered, and carries **Approve** /
+ * **Deny** buttons for the staff team.
+ *
+ * Who gets that ping is any mix of members and roles, picked with
+ * `/applications notify` — a Discord **mentionable select**, so one picker
+ * covers both. Until a server chooses, it's the guild owner, which is what the
+ * module did before it was configurable. The card's `allowed_mentions` names
+ * exactly those ids: a role pings whether or not it is "mentionable" (given
+ * `MENTION_EVERYONE`), and nothing else in the message can ping at all.
  *
  * Before posting, the application is measured against this guild's rules
  * ({@see evaluate()}): account age, whether every required form field was
@@ -53,9 +62,9 @@ use function React\Promise\resolve;
  * itself and the card says so; otherwise the card lists what held it back and
  * waits for a human.
  *
- * Rules are per-guild, live in the {@see \Tutelar\Store}, and are edited with
- * `/applications` (Manage Server). Defaults are in {@see DEFAULTS} — note that
- * `auto` is **off** until a manager turns it on.
+ * Rules and ping targets are per-guild, live in the {@see \Tutelar\Store}, and
+ * are edited with `/applications` (Manage Server). Rule defaults are in
+ * {@see DEFAULTS} — note that `auto` is **off** until a manager turns it on.
  *
  * Discord only sends these events to bots holding `KICK_MEMBERS`, which is the
  * same permission the approve/deny REST call needs; without it the module is
@@ -78,6 +87,9 @@ final class Applications implements Module
 
     /** Remember at most this many request ids, so a long-lived bot can't leak memory. */
     private const SEEN_LIMIT = 500;
+
+    /** How many members / roles one server may ping for an application. */
+    private const MENTION_LIMIT = 10;
 
     /**
      * The per-guild rules, and their out-of-the-box values.
@@ -127,7 +139,8 @@ final class Applications implements Module
                 ->setDescription('Review rules for this server\'s join applications. Manage Server only.')
                 ->setContext([Interaction::CONTEXT_TYPE_GUILD])
                 ->addIntegrationType(Application::INTEGRATION_TYPE_GUILD_INSTALL)
-                ->addOption($sub('view', 'Show the current auto-approval rules.'))
+                ->addOption($sub('view', 'Show the current auto-approval rules and who gets pinged.'))
+                ->addOption($sub('notify', 'Choose the members and/or roles pinged when an application arrives.'))
                 ->addOption($sub('rules', 'Change the auto-approval rules.')
                     ->addOption($bool('auto', 'Approve applications that pass every rule below, without a human.', true))
                     ->addOption((new Option($bot))
@@ -149,7 +162,9 @@ final class Applications implements Module
         $bot->on(Event::GUILD_JOIN_REQUEST_CREATE, fn($request) => $this->onRequest($bot, $request));
         $bot->on(Event::GUILD_JOIN_REQUEST_UPDATE, fn($request) => $this->onRequest($bot, $request));
 
-        // One dispatcher for every application button: `app:<action>:<requestId>`.
+        // One dispatcher for every application component: the card's buttons
+        // (`app:approve|deny:<requestId>`) and the notify picker
+        // (`app:notify:<guildId>`).
         $bot->on(Event::INTERACTION_CREATE, function (Interaction $i) use ($bot): void {
             if ($i->type !== Interaction::TYPE_MESSAGE_COMPONENT || ! $i->guild instanceof Guild) {
                 return;
@@ -158,7 +173,7 @@ final class Applications implements Module
             if (($parts[0] ?? '') !== 'app' || ($parts[1] ?? '') === '' || ($parts[2] ?? '') === '') {
                 return;
             }
-            $this->onButton($bot, $i, $i->guild, $parts[1], $parts[2]);
+            $this->onComponent($bot, $i, $i->guild, $parts[1], $parts[2]);
         });
     }
 
@@ -244,15 +259,16 @@ final class Applications implements Module
     }
 
     /**
-     * Post the application card to the log channel, pinging the server owner so
-     * a pending application can't sit unseen.
+     * Post the application card to the log channel, pinging whoever this guild
+     * nominated with `/applications notify` (the owner by default) so a pending
+     * application can't sit unseen.
      *
      * @param list<string> $reasons why it was not auto-approved (empty when it was)
      * @param bool|null    $auto    true = auto-approved, false = auto-approve attempted and failed, null = not attempted
      */
     private function announce(Tutelar $bot, ?Guild $guild, string $guildId, GuildJoinRequest $request, array $reasons, ?bool $auto): void
     {
-        $ownerId = (string) ($guild?->owner_id ?? '');
+        $mentions = self::effectiveTargets($this->targets($bot, $guildId), (string) ($guild?->owner_id ?? ''));
         $userId = (string) ($request->user_id ?? $request->user?->id ?? '');
 
         $embed = (new Embed($bot))
@@ -278,7 +294,13 @@ final class Applications implements Module
         $embed->addFieldValues(...Text::field('Answers', self::renderResponses(self::formRows($request))));
         $embed->addFieldValues(...Text::field('Review', self::verdictLine($auto, $reasons)));
 
-        $message = Tutelar::reply()->setContent(self::ping($ownerId, $auto === true))->addEmbed($embed);
+        // Not Tutelar::reply(): that parses *user* mentions only, and a ping
+        // target can be a role. Naming the exact ids also means the embed's
+        // own `<@applicant>` can't ping anybody.
+        $message = MessageBuilder::new()
+            ->setAllowedMentions(self::allowedMentions($mentions))
+            ->setContent(self::ping($mentions, $auto === true))
+            ->addEmbed($embed);
 
         // Nothing left to decide once it is approved — no buttons.
         if ($auto !== true) {
@@ -312,10 +334,17 @@ final class Applications implements Module
         return $embed;
     }
 
-    // --- buttons ---------------------------------------------------------
+    // --- components ------------------------------------------------------
 
-    private function onButton(Tutelar $bot, Interaction $ci, Guild $guild, string $action, string $requestId): PromiseInterface
+    private function onComponent(Tutelar $bot, Interaction $ci, Guild $guild, string $action, string $arg): PromiseInterface
     {
+        // The notify picker is a Manage Server setting, not a review action.
+        if ($action === 'notify') {
+            return $this->saveTargets($bot, $ci, $guild);
+        }
+
+        $requestId = $arg;
+
         if (! Permissions::forInteraction(Permissions::MODERATOR, $ci)) {
             return $ci->respondWithMessage(Tutelar::reply(false)->setContent('You need a moderator permission to review applications.'), true);
         }
@@ -414,10 +443,21 @@ final class Applications implements Module
 
         $sub = $interaction->data->options?->first();
         $arg = static fn(string $k): mixed => $sub?->options?->get('name', $k)?->value;
+        $name = (string) ($sub?->name ?? 'view');
 
-        if ((string) ($sub?->name ?? '') !== 'rules') {
+        if ($name === 'notify') {
+            // An ephemeral mentionable select: the picker Discord already has
+            // for members *and* roles, rather than a second command option per
+            // kind of mentionable.
             return $interaction->respondWithMessage(
-                Tutelar::reply(false)->setContent(self::summary($this->rules($bot, (string) $guild->id), $bot->guild($guild->id)->channel('log'))),
+                $this->notifyMessage($bot, $guild, $this->targets($bot, (string) $guild->id)),
+                true,
+            );
+        }
+
+        if ($name !== 'rules') {
+            return $interaction->respondWithMessage(
+                Tutelar::reply(false)->setContent($this->summaryFor($bot, $guild)),
                 true,
             );
         }
@@ -434,9 +474,110 @@ final class Applications implements Module
         $bot->getStore()->moduleSet('applications', "rules:{$guild->id}", $rules);
 
         return $interaction->respondWithMessage(
-            Tutelar::reply(false)->setContent("✅ Updated.\n\n" . self::summary($rules, $bot->guild($guild->id)->channel('log'))),
+            Tutelar::reply(false)->setContent("✅ Updated.\n\n" . $this->summaryFor($bot, $guild, $rules)),
             true,
         );
+    }
+
+    /**
+     * Persist the picked mentionables and re-render the picker with them as its
+     * new defaults, so one message can be adjusted until it's right.
+     */
+    private function saveTargets(Tutelar $bot, Interaction $ci, Guild $guild): PromiseInterface
+    {
+        if (! Permissions::forInteraction(Permissions::MANAGER, $ci)) {
+            return $ci->respondWithMessage(Tutelar::reply(false)->setContent('You need **Manage Server** to change who gets pinged.'), true);
+        }
+
+        $targets = self::selectedTargets($ci);
+        $bot->getStore()->moduleSet('applications', "notify:{$guild->id}", $targets);
+
+        return $ci->updateMessage($this->notifyMessage($bot, $guild, $targets));
+    }
+
+    /**
+     * The `/applications notify` picker, pre-filled with the guild's current
+     * choice.
+     *
+     * @param list<array{id: string, type: string}> $targets
+     */
+    private function notifyMessage(Tutelar $bot, Guild $guild, array $targets): MessageBuilder
+    {
+        $select = MentionableSelect::new("app:notify:{$guild->id}")
+            ->setPlaceholder('Members and/or roles to ping')
+            ->setMinValues(0)
+            ->setMaxValues(self::MENTION_LIMIT);
+
+        // Pre-selecting the stored choice is what makes "pick none" read as
+        // "clear it" rather than "I forgot to choose".
+        if ($targets !== []) {
+            $select->setDefaultValues(array_values($targets));
+        }
+
+        return Tutelar::reply(false)
+            ->setContent(self::notifyIntro($targets, (string) ($guild->owner_id ?? '')))
+            ->addComponent(ActionRow::new()->addComponent($select));
+    }
+
+    /** `/applications view` for this guild, reading the store for everything it shows. */
+    private function summaryFor(Tutelar $bot, Guild $guild, ?array $rules = null): string
+    {
+        return self::summary(
+            $rules ?? $this->rules($bot, (string) $guild->id),
+            $bot->guild($guild->id)->channel('log'),
+            $this->targets($bot, (string) $guild->id),
+            (string) ($guild->owner_id ?? ''),
+        );
+    }
+
+    /**
+     * The mentionables this guild pings, as stored. Empty means "nothing
+     * configured" — {@see effectiveTargets()} decides what that falls back to.
+     *
+     * @return list<array{id: string, type: string}>
+     */
+    private function targets(Tutelar $bot, string $guildId): array
+    {
+        return self::normaliseMentions($bot->getStore()->moduleGet('applications', "notify:{$guildId}", []));
+    }
+
+    /**
+     * What the picker just returned. A mentionable select sends bare ids in
+     * `values`; `resolved.roles` is what separates a role from a member.
+     *
+     * @return list<array{id: string, type: string}>
+     */
+    private static function selectedTargets(Interaction $ci): array
+    {
+        $resolved = $ci->data->resolved ?? null;
+
+        $picked = [];
+        foreach ((array) ($ci->data->values ?? []) as $id) {
+            $id = (string) $id;
+            $picked[] = ['id' => $id, 'type' => $resolved?->roles?->get('id', $id) !== null ? 'role' : 'user'];
+        }
+
+        return self::normaliseMentions($picked);
+    }
+
+    /**
+     * `allowed_mentions` naming exactly the ping targets, with an empty `parse`
+     * so nothing else in the message (the applicant, a quoted answer) can ping.
+     *
+     * Built as the raw payload rather than an {@see AllowedMentions} part:
+     * that part serialises `roles`/`users` through an unguarded
+     * `in_array(…, $this->parse)`, which fatals whenever `parse` was never set —
+     * and `setParse([])` stores null, so there is no way to set it empty.
+     * {@see MessageBuilder::setAllowedMentions()} takes an array just as
+     * happily. Pure.
+     *
+     * @param list<array{id: string, type: string}> $targets
+     *
+     * @return array{parse: list<string>, users: list<string>, roles: list<string>}
+     */
+    public static function allowedMentions(array $targets): array
+    {
+        return ['parse' => []] + self::splitMentions($targets);
     }
 
     /**
@@ -616,12 +757,88 @@ final class Applications implements Module
     }
 
     /**
-     * The message content that carries the owner ping. An auto-approved
-     * application is FYI, so it says so rather than demanding attention. Pure.
+     * Coerce stored / picked ping targets into a clean list: `user` or `role`
+     * (anything else is dropped), numeric ids only, first occurrence wins, and
+     * no more than {@see MENTION_LIMIT} of them. Pure.
+     *
+     * @return list<array{id: string, type: string}>
      */
-    public static function ping(string $ownerId, bool $autoApproved): string
+    public static function normaliseMentions(mixed $raw): array
     {
-        $who = $ownerId !== '' ? "<@{$ownerId}> " : '';
+        $out = [];
+        foreach (is_array($raw) ? $raw : [] as $entry) {
+            if (! is_array($entry)) {
+                continue;
+            }
+            $id = (string) ($entry['id'] ?? '');
+            $type = (string) ($entry['type'] ?? '');
+            if ($id === '' || ! ctype_digit($id) || ! in_array($type, ['user', 'role'], true) || isset($out[$id])) {
+                continue;
+            }
+            $out[$id] = ['id' => $id, 'type' => $type];
+        }
+
+        return array_slice(array_values($out), 0, self::MENTION_LIMIT);
+    }
+
+    /**
+     * Who to actually ping: the configured mentionables, or the server owner
+     * when a guild has never chosen (the behaviour before it was configurable).
+     * Pure.
+     *
+     * @param list<array{id: string, type: string}> $targets
+     *
+     * @return list<array{id: string, type: string}>
+     */
+    public static function effectiveTargets(array $targets, string $ownerId): array
+    {
+        if ($targets !== []) {
+            return $targets;
+        }
+
+        return $ownerId !== '' ? [['id' => $ownerId, 'type' => 'user']] : [];
+    }
+
+    /**
+     * `<@user> <@&role>` for a target list — the mention syntax a role and a
+     * member each need. Pure.
+     *
+     * @param list<array{id: string, type: string}> $targets
+     */
+    public static function renderMentions(array $targets): string
+    {
+        return implode(' ', array_map(
+            static fn(array $t): string => ($t['type'] === 'role' ? '<@&' : '<@') . $t['id'] . '>',
+            $targets,
+        ));
+    }
+
+    /**
+     * Ping targets split into the two `allowed_mentions` lists. Pure.
+     *
+     * @param list<array{id: string, type: string}> $targets
+     *
+     * @return array{users: list<string>, roles: list<string>}
+     */
+    public static function splitMentions(array $targets): array
+    {
+        $split = ['users' => [], 'roles' => []];
+        foreach ($targets as $target) {
+            $split[$target['type'] === 'role' ? 'roles' : 'users'][] = $target['id'];
+        }
+
+        return $split;
+    }
+
+    /**
+     * The message content that carries the ping. An auto-approved application
+     * is FYI, so it says so rather than demanding attention. Pure.
+     *
+     * @param list<array{id: string, type: string}> $targets already resolved by {@see effectiveTargets()}
+     */
+    public static function ping(array $targets, bool $autoApproved): string
+    {
+        $who = $targets === [] ? '' : self::renderMentions($targets) . ' ';
 
         return $autoApproved
             ? "{$who}an application was auto-approved."
@@ -629,11 +846,37 @@ final class Applications implements Module
     }
 
     /**
+     * The copy above the `/applications notify` picker: who it pings today, and
+     * what picking nobody means. Pure.
+     *
+     * @param list<array{id: string, type: string}> $targets
+     */
+    public static function notifyIntro(array $targets, string $ownerId): string
+    {
+        $lines = ['**Who gets pinged for a new application?**', ''];
+
+        if ($targets !== []) {
+            $lines[] = 'Currently: ' . self::renderMentions($targets);
+        } elseif ($ownerId !== '') {
+            $lines[] = sprintf('Currently: <@%s> — the server owner, because nothing else is set.', $ownerId);
+        } else {
+            $lines[] = 'Currently: nobody.';
+        }
+
+        $lines[] = '';
+        $lines[] = 'Pick any mix of members and roles below (up to ' . self::MENTION_LIMIT . '). Picking none falls back to the server owner.';
+        $lines[] = '_A role that is not set "mentionable" still pings if I hold **Mention @everyone, @here and All Roles**._';
+
+        return implode("\n", $lines);
+    }
+
+    /**
      * `/applications view` body. Pure.
      *
      * @param array{auto: bool, min_account_age_days: int, require_answers: bool, require_clean_record: bool} $rules
+     * @param list<array{id: string, type: string}>                                                           $targets configured ping targets, before the owner fallback
      */
-    public static function summary(array $rules, ?string $logChannelId): string
+    public static function summary(array $rules, ?string $logChannelId, array $targets = [], string $ownerId = ''): string
     {
         $tick = static fn(bool $on): string => $on ? '**on**' : '**off**';
 
@@ -652,10 +895,17 @@ final class Applications implements Module
             '• Every required question answered — ' . $tick($rules['require_answers']) . '.',
             '• No moderation cases in this server — ' . $tick($rules['require_clean_record']) . '.',
             '',
+            '**Pings**',
+            $targets !== []
+                ? '• ' . self::renderMentions($targets)
+                : ($ownerId !== ''
+                    ? sprintf('• <@%s> — the server owner, because nothing else is set.', $ownerId)
+                    : '• Nobody — set one with `/applications notify`.'),
+            '',
             $logChannelId !== null
-                ? sprintf('Applications are announced in <#%s>, pinging the server owner.', $logChannelId)
+                ? sprintf('Applications are announced in <#%s>.', $logChannelId)
                 : '⚠️ No log channel set, so there is nowhere to announce applications — `/config set` → *Log channel*.',
-            '`/applications rules auto:<true|false> …` to change any of this.',
+            '`/applications rules auto:<true|false> …` to change the rules · `/applications notify` to change who gets pinged.',
         ];
 
         return implode("\n", $lines);

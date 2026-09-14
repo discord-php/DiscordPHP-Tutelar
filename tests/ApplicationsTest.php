@@ -210,27 +210,38 @@ final class ApplicationsTest extends TestCase
         $this->assertStringContainsString('Missing Permissions', $line);
     }
 
-    public function testThePingMentionsTheOwnerAndAsksForALook(): void
+    public function testThePingMentionsEveryTargetAndAsksForALook(): void
     {
-        $this->assertSame('<@42> a new server application needs a look.', Applications::ping('42', false));
-        $this->assertStringContainsString('auto-approved', Applications::ping('42', true));
+        $targets = [['id' => '42', 'type' => 'user'], ['id' => '7', 'type' => 'role']];
+
+        $this->assertSame('<@42> <@&7> a new server application needs a look.', Applications::ping($targets, false));
+        $this->assertStringContainsString('auto-approved', Applications::ping($targets, true));
     }
 
-    public function testThePingDegradesGracefullyWithNoKnownOwner(): void
+    public function testThePingDegradesGracefullyWithNobodyToMention(): void
     {
-        $content = Applications::ping('', false);
+        $content = Applications::ping([], false);
 
         $this->assertStringNotContainsString('<@', $content);
         $this->assertStringStartsWith('a new server application', $content);
     }
 
-    public function testSummaryShowsTheRulesAndWhereApplicationsLand(): void
+    public function testSummaryShowsTheRulesTheTargetsAndWhereApplicationsLand(): void
     {
-        $summary = Applications::summary($this->rules(minAge: 14), '999');
+        $summary = Applications::summary($this->rules(minAge: 14), '999', [['id' => '7', 'type' => 'role']], '5');
 
         $this->assertStringContainsString('Auto-approval — **on**', $summary);
         $this->assertStringContainsString('at least **14 day(s)** old', $summary);
         $this->assertStringContainsString('<#999>', $summary);
+        $this->assertStringContainsString('<@&7>', $summary);
+        $this->assertStringNotContainsString('<@5>', $summary, 'a configured target replaces the owner fallback');
+    }
+
+    public function testSummaryNamesTheOwnerFallbackWhenNoTargetIsConfigured(): void
+    {
+        $summary = Applications::summary($this->rules(), '999', [], '5');
+
+        $this->assertStringContainsString('<@5> — the server owner', $summary);
     }
 
     public function testSummaryWarnsWhenThereIsNoLogChannelToAnnounceIn(): void
@@ -240,5 +251,102 @@ final class ApplicationsTest extends TestCase
         $this->assertStringContainsString('Auto-approval — **off**', $summary);
         $this->assertStringContainsString('No account-age minimum', $summary);
         $this->assertStringContainsString('No log channel set', $summary);
+        $this->assertStringContainsString('Nobody', $summary, 'no targets and no known owner means nobody is pinged');
+    }
+
+    // --- ping targets ----------------------------------------------------
+
+    public function testNormaliseMentionsKeepsOnlyUsableUserAndRoleIds(): void
+    {
+        $targets = Applications::normaliseMentions([
+            ['id' => '1', 'type' => 'user'],
+            ['id' => '2', 'type' => 'role'],
+            ['id' => '1', 'type' => 'role'],        // duplicate id — first wins
+            ['id' => 'abc', 'type' => 'user'],      // not a snowflake
+            ['id' => '3', 'type' => 'channel'],     // not a mentionable we ping
+            ['id' => '', 'type' => 'user'],
+            'nonsense',
+        ]);
+
+        $this->assertSame([
+            ['id' => '1', 'type' => 'user'],
+            ['id' => '2', 'type' => 'role'],
+        ], $targets);
+    }
+
+    public function testNormaliseMentionsSurvivesJunkFromTheStore(): void
+    {
+        $this->assertSame([], Applications::normaliseMentions(null));
+        $this->assertSame([], Applications::normaliseMentions('owner'));
+    }
+
+    public function testNormaliseMentionsIsCapped(): void
+    {
+        $many = [];
+        for ($i = 1; $i <= 40; $i++) {
+            $many[] = ['id' => (string) $i, 'type' => 'user'];
+        }
+
+        $this->assertCount(10, Applications::normaliseMentions($many));
+    }
+
+    public function testEffectiveTargetsFallsBackToTheOwnerOnlyWhenNothingIsSet(): void
+    {
+        $chosen = [['id' => '7', 'type' => 'role']];
+
+        $this->assertSame($chosen, Applications::effectiveTargets($chosen, '5'));
+        $this->assertSame([['id' => '5', 'type' => 'user']], Applications::effectiveTargets([], '5'));
+        $this->assertSame([], Applications::effectiveTargets([], ''), 'an unknown owner pings nobody rather than guessing');
+    }
+
+    public function testRenderMentionsUsesTheRightSyntaxForEachKind(): void
+    {
+        $this->assertSame(
+            '<@1> <@&2>',
+            Applications::renderMentions([['id' => '1', 'type' => 'user'], ['id' => '2', 'type' => 'role']]),
+        );
+        $this->assertSame('', Applications::renderMentions([]));
+    }
+
+    public function testSplitMentionsFeedsTheTwoAllowedMentionLists(): void
+    {
+        $split = Applications::splitMentions([
+            ['id' => '1', 'type' => 'user'],
+            ['id' => '2', 'type' => 'role'],
+            ['id' => '3', 'type' => 'user'],
+        ]);
+
+        $this->assertSame(['1', '3'], $split['users']);
+        $this->assertSame(['2'], $split['roles']);
+        $this->assertSame(['users' => [], 'roles' => []], Applications::splitMentions([]));
+    }
+
+    public function testAllowedMentionsNamesOnlyTheTargets(): void
+    {
+        $payload = Applications::allowedMentions([['id' => '1', 'type' => 'user'], ['id' => '2', 'type' => 'role']]);
+
+        $this->assertSame(['parse' => [], 'users' => ['1'], 'roles' => ['2']], $payload);
+    }
+
+    public function testAllowedMentionsWithNoTargetsPingsNothing(): void
+    {
+        // An empty `parse` is the point: the card's embed mentions the applicant
+        // and quotes their answers, and neither may ping anyone.
+        $this->assertSame(['parse' => [], 'users' => [], 'roles' => []], Applications::allowedMentions([]));
+    }
+
+    public function testNotifyIntroSaysWhoIsPingedToday(): void
+    {
+        $withTargets = Applications::notifyIntro([['id' => '7', 'type' => 'role']], '5');
+        $withoutTargets = Applications::notifyIntro([], '5');
+
+        $this->assertStringContainsString('Currently: <@&7>', $withTargets);
+        $this->assertStringContainsString('<@5> — the server owner', $withoutTargets);
+        $this->assertStringContainsString('Picking none falls back to the server owner', $withoutTargets);
+    }
+
+    public function testNotifyIntroHandlesAnUnknownOwner(): void
+    {
+        $this->assertStringContainsString('Currently: nobody.', Applications::notifyIntro([], ''));
     }
 }

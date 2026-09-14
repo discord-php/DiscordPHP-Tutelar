@@ -52,9 +52,16 @@ for every submission. The
 [`Applications`](src/Tutelar/Modules/Applications.php) module turns that into
 something a staff team can act on:
 
-- a card in the `log` channel that **pings the server owner**, with the
-  applicant, their account age, every question and answer, and **Approve** /
+- a card in the `log` channel that **pings whoever the server nominated**, with
+  the applicant, their account age, every question and answer, and **Approve** /
   **Deny** buttons (Deny takes an optional reason, shown to the applicant);
+- a configurable ping target — `/applications notify` opens a Discord
+  [mentionable select](https://docs.discord.com/developers/components/reference#mentionable-select),
+  so any mix of members and roles (up to 10) can be the ones pinged; pick none
+  and it falls back to the server owner, which is the default. The card's
+  `allowed_mentions` names exactly those ids, so a role pings even when it is
+  not "mentionable" (given **Mention @everyone, @here and All Roles**) and
+  nothing else in the message pings at all;
 - optional **auto-approval** — an application is approved without a human when
   it passes every rule: a minimum account age, every required question answered,
   and no moderation cases in this server. Whatever held an application back is
@@ -65,6 +72,7 @@ Server); auto-approval is **off** until someone turns it on:
 
 ```
 /applications view
+/applications notify
 /applications rules auto:true min_account_age:30 require_answers:true clean_record:true
 ```
 

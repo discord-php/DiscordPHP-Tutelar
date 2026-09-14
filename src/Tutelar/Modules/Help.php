@@ -80,7 +80,7 @@ final class Help implements Module
                 '**Tickets**',
                 '`/ticket [user] [reason]` — open a private staff channel at the server root, visible only to roles with a moderator permission. **Close** files the full transcript to the mod-log as a `.txt` and deletes the channel.',
                 '**Applications**',
-                'When someone submits this server\'s join application, Tutelar posts a card to the log channel that pings the server owner, with **Approve** / **Deny** buttons (Deny asks for an optional reason). Rules for approving them automatically are `/applications` (Manage Server).',
+                'When someone submits this server\'s join application, Tutelar posts a card to the log channel that pings whoever the server nominated — the owner until someone picks otherwise — with **Approve** / **Deny** buttons (Deny asks for an optional reason). Who gets pinged, and the rules for approving applications automatically, are `/applications` (Manage Server).',
                 'Every action writes a numbered case to the mod-log channel (`/config set` → *Mod-log channel*).',
             ],
         ],
@@ -97,7 +97,8 @@ final class Help implements Module
             'tier' => 'manager',
             'title' => 'Applications — `/applications` (needs Manage Server)',
             'lines' => [
-                '`/applications view` — the current auto-approval rules, and where applications are announced.',
+                '`/applications view` — the current auto-approval rules, who gets pinged, and where applications are announced.',
+                '`/applications notify` — pick the members and/or roles pinged when an application arrives, from one mentionable picker. Pick none to fall back to the server owner.',
                 '`/applications rules auto:<true|false> [min_account_age] [require_answers] [clean_record]` — approve an application without a human when it passes every rule: the account is old enough, every required question was answered, and the applicant has no moderation cases here.',
                 'Auto-approval is **off** by default — until you turn it on, every application waits for Approve / Deny on its card.',
                 'Needs the **Kick Members** permission: Discord only sends join-request events to a bot that has it, and it\'s the same permission approving one takes.',
