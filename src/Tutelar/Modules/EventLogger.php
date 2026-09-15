@@ -18,6 +18,7 @@ use Discord\Parts\Embed\Embed;
 use Discord\Parts\Guild\Ban;
 use Discord\Parts\User\Member;
 use Discord\WebSockets\Event;
+use Tutelar\Support\Mention;
 use Tutelar\Support\Text;
 use Tutelar\Tutelar;
 
@@ -28,6 +29,11 @@ use Tutelar\Tutelar;
  * Consolidates the legacy `log_functions.php` — one `$log_builder` closure plus
  * eight near-identical per-event handlers — into a single module whose only
  * per-event branch is which fields to add.
+ *
+ * Every entry names its subject with a {@see Mention} — a `<@id>` field and a
+ * profile link on the author line — so a moderator reading the feed can open
+ * the account straight from the log instead of copying a display name into the
+ * search box. Mentions inside an embed never ping, so the feed stays silent.
  *
  * Needs the `GUILD_MESSAGES` intent (default) for the message events, and the
  * privileged `GUILD_MEMBERS` + `MESSAGE_CONTENT` intents for the member events
@@ -83,7 +89,7 @@ final class EventLogger implements Module
             $count = is_countable($messages) ? count($messages) : 0;
             $embed = $this->baseEmbed($bot)
                 ->setTitle('Bulk message delete')
-                ->setDescription("**{$count}** messages were removed from <#{$first->channel_id}>.");
+                ->setDescription("**{$count}** messages were removed from " . Mention::channel($first->channel_id ?? null) . '.');
             $this->send($bot, $first->guild_id ?? null, $embed);
         });
 
@@ -179,7 +185,7 @@ final class EventLogger implements Module
     private function messageEmbed(Tutelar $bot, Message $message, string $title, array $fields): Embed
     {
         $embed = $this->userEmbed($bot, $message->author ?? null, $title, $fields) ?? $this->baseEmbed($bot)->setTitle($title);
-        $embed->addFieldValues(...Text::field('Channel', "<#{$message->channel_id}>", true));
+        $embed->addFieldValues(...Text::field('Channel', Mention::channel($message->channel_id ?? null), true));
         if ($link = $message->link) {
             $embed->addFieldValues(...Text::field('Jump', "[link]({$link})", true));
         }
@@ -199,7 +205,18 @@ final class EventLogger implements Module
         if ($user === null) {
             return null;
         }
-        $embed = $this->baseEmbed($bot)->setTitle($title)->setAuthor($user->displayname ?? $user->username ?? 'unknown', $user->avatar ?? null);
+
+        $id = $user->id ?? null;
+
+        // Whoever reads this log later needs to be able to open the profile:
+        // the author line links to it, and the User field carries the mention
+        // (plus the raw id, which still reads when the mention can't resolve —
+        // a member who left, or a banned account).
+        $embed = $this->baseEmbed($bot)
+            ->setTitle($title)
+            ->setAuthor($user->displayname ?? $user->username ?? 'unknown', $user->avatar ?? null, Mention::profileUrl($id))
+            ->addFieldValues(...Text::field('User', Mention::userLine($id), true));
+
         foreach ($fields as $name => $value) {
             $embed->addFieldValues(...Text::field((string) $name, (string) $value, mb_strlen((string) $value) <= 40));
         }

@@ -31,6 +31,7 @@ use Discord\Parts\OAuth\Application;
 use Discord\WebSockets\Event;
 use React\Promise\PromiseInterface;
 use Tutelar\Moderation\CaseBook;
+use Tutelar\Support\Mention;
 use Tutelar\Support\Permissions;
 use Tutelar\Support\Text;
 use Tutelar\Tutelar;
@@ -305,7 +306,9 @@ final class Applications implements Module
             ->setTimestamp();
 
         if ($user = $request->user) {
-            $embed->setAuthor($user->displayname ?? $user->username ?? "User {$userId}", $user->avatar ?? null);
+            // Linked, so the card's name + avatar opens the applicant's profile
+            // the same way the Applicant field's mention does.
+            $embed->setAuthor($user->displayname ?? $user->username ?? "User {$userId}", $user->avatar ?? null, Mention::profileUrl($userId));
         }
         if ($github = $bot->getConfig()->github) {
             $embed->setFooter($github);

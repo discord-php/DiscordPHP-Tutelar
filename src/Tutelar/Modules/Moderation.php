@@ -28,6 +28,7 @@ use Discord\Repository\Interaction\GlobalCommandRepository;
 use React\Promise\PromiseInterface;
 use Tutelar\Moderation\CaseBook;
 use Tutelar\Moderation\Duration;
+use Tutelar\Support\Mention;
 use Tutelar\Support\Permissions;
 use Tutelar\Support\Text;
 use Tutelar\Tutelar;
@@ -408,9 +409,11 @@ final class Moderation implements Module
         }
         $more = count($list) > self::CASE_LIST_LIMIT ? "\n… and " . (count($list) - self::CASE_LIST_LIMIT) . ' more' : '';
 
+        // An embed title can't hold a mention, so the subject goes at the top of
+        // the description where it stays clickable.
         $embed = (new Embed($bot))->setColor(0xA7C5FD)
-            ->setTitle(ucfirst($label) . " for a member ({$list[0]['user']})")
-            ->setDescription(implode("\n", $lines) . $more);
+            ->setTitle(ucfirst($label) . ' for a member')
+            ->setDescription(Mention::userLine($userId) . "\n\n" . implode("\n", $lines) . $more);
 
         return $i->respondWithMessage(Tutelar::reply(false)->addEmbed($embed), true);
     }
@@ -603,9 +606,11 @@ final class Moderation implements Module
         }
         $more = count($list) > self::CASE_LIST_LIMIT ? "\n… and " . (count($list) - self::CASE_LIST_LIMIT) . ' more' : '';
 
+        // The subject leads the description rather than sitting as a raw id in
+        // the title, where Discord would render it as plain text.
         return (new Embed($bot))->setColor(0xA7C5FD)
-            ->setTitle(ucfirst($label) . " for a member ({$list[0]['user']})")
-            ->setDescription(implode("\n", $lines) . $more);
+            ->setTitle(ucfirst($label) . ' for a member')
+            ->setDescription(Mention::userLine($userId) . "\n\n" . implode("\n", $lines) . $more);
     }
 
     // --- API helpers (return promises) --------------------------
@@ -754,14 +759,33 @@ final class Moderation implements Module
         return Text::clip(trim(($reason !== '' ? $reason : 'No reason given.') . ' — by ' . ($i->user->username ?? $i->user->id)), 400);
     }
 
+    /**
+     * The `[field name, value]` for a case's subject. A `lock` / `unlock` case
+     * records the **channel** it acted on in the same slot every other case
+     * records the member, so rendering it as `<@id>` produced a dead mention to
+     * a user who doesn't exist; those get a channel mention and an honest
+     * label. Everything else is the member, with their id alongside the mention
+     * so a banned or departed account is still identifiable. Pure.
+     *
+     * @return array{0: string, 1: string}
+     */
+    public static function caseTarget(string $type, int|string|null $id): array
+    {
+        return in_array($type, ['lock', 'unlock'], true)
+            ? ['Channel', Mention::channel($id)]
+            : ['Target', Mention::userLine($id)];
+    }
+
     private function caseEmbed(Tutelar $bot, array $case): Embed
     {
+        [$targetName, $targetValue] = self::caseTarget((string) $case['type'], $case['user'] ?? null);
+
         return (new Embed($bot))
             ->setColor(self::COLOUR[$case['type']] ?? 0xA7C5FD)
             ->setTitle("Case #{$case['id']} · " . strtoupper((string) $case['type']))
             ->setDescription(Text::clip((string) $case['reason'], 2000))
-            ->addFieldValues(...Text::field('Target', '<@' . $case['user'] . '>', true))
-            ->addFieldValues(...Text::field('Moderator', '<@' . $case['mod'] . '>', true))
+            ->addFieldValues(...Text::field($targetName, $targetValue, true))
+            ->addFieldValues(...Text::field('Moderator', Mention::userLine($case['mod'] ?? null), true))
             ->addFieldValues(...Text::field('When', '<t:' . (int) $case['at'] . ':F>', true))
             ->addFieldValues(...Text::field('Expires', $case['expires'] ? '<t:' . (int) $case['expires'] . ':R>' : '—', true));
     }

@@ -70,4 +70,25 @@ final class ModerationHelpersTest extends TestCase
         $bots = Moderation::filterMessages($messages, null, null, true);
         $this->assertSame(['3'], array_column($bots, 'id'));
     }
+
+    public function testACaseTargetIsAClickableMemberMentionPlusTheirId(): void
+    {
+        $this->assertSame(['Target', '<@42> · `42`'], Moderation::caseTarget('warn', '42'));
+        $this->assertSame(['Target', '<@42> · `42`'], Moderation::caseTarget('ban', 42));
+    }
+
+    public function testALockCaseNamesTheChannelItActuallyActedOn(): void
+    {
+        // lock / unlock record the CHANNEL in the slot every other case type
+        // uses for the member, so rendering it as <@id> pointed at a user that
+        // never existed.
+        $this->assertSame(['Channel', '<#999>'], Moderation::caseTarget('lock', '999'));
+        $this->assertSame(['Channel', '<#999>'], Moderation::caseTarget('unlock', '999'));
+    }
+
+    public function testACaseTargetSurvivesAMissingId(): void
+    {
+        $this->assertSame(['Target', '*(unknown user)*'], Moderation::caseTarget('warn', null));
+        $this->assertSame(['Channel', '*(unknown channel)*'], Moderation::caseTarget('lock', ''));
+    }
 }
