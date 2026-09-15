@@ -53,6 +53,12 @@ use function React\Promise\resolve;
  * custom_ids and one `INTERACTION_CREATE` dispatcher routes every click, so a
  * self-refreshing panel never stacks listeners.
  *
+ * **History** opens a second ephemeral message — the member's case list with a
+ * **Delete** button per listed case (`mph:<case>:<target>`), so a warning can be
+ * voided right there rather than by reading off a number and running
+ * `/mod delwarn`. Deleting goes through {@see Moderation::voidCase()}, the same
+ * path that command takes, and re-renders the list in place.
+ *
  * The same module also owns the **`Report to mods`** message context-menu: any
  * member right-clicks a message → Apps → Report to mods, and Tutelar posts a
  * V2 report card to the log channel with Timeout / Kick / Ban / Dismiss buttons
@@ -136,6 +142,8 @@ final class ModPanel implements Module
             $parts = explode(':', (string) ($i->data->custom_id ?? ''));
             if (($parts[0] ?? '') === 'mp' && ($parts[1] ?? '') !== '' && ($parts[2] ?? '') !== '') {
                 $this->onButton($bot, $i, $i->guild, $parts[2], $parts[1]);
+            } elseif (($parts[0] ?? '') === 'mph' && ctype_digit($parts[1] ?? '') && ($parts[2] ?? '') !== '') {
+                $this->onHistoryButton($bot, $i, $i->guild, (int) $parts[1], $parts[2]);
             } elseif (($parts[0] ?? '') === 'mpr' && count($parts) === 5) {
                 [, $action, $authorId, $channelId, $messageId] = $parts;
                 $this->onReportButton($bot, $i, $i->guild, $action, $authorId, $channelId, $messageId);
@@ -227,6 +235,57 @@ final class ModPanel implements Module
         return $msg;
     }
 
+    /**
+     * The **History** view: the member's case list, plus one **Delete** button
+     * per listed case so a warning can be voided from here instead of reading
+     * off a number and typing `/mod delwarn`.
+     *
+     * Ephemeral and separate from the panel message, so deleting a case updates
+     * this list in place and leaves the panel alone (its warning count catches
+     * up on **Refresh**).
+     */
+    private function history(Tutelar $bot, Guild $guild, string $targetId, ?string $status): MessageBuilder
+    {
+        $message = Tutelar::reply(false)->addEmbed($this->moderation->caseListEmbed($bot, $guild, $targetId, null));
+        if ($status !== null) {
+            $message->setContent($status);
+        }
+
+        $listed = array_slice($this->moderation->cases()->forUser($guild->id, $targetId), 0, Moderation::CASE_LIST_LIMIT);
+
+        // Discord allows five action rows of five buttons; the case list is
+        // capped at CASE_LIST_LIMIT, which fits inside that.
+        foreach (array_chunk($listed, 5) as $chunk) {
+            $row = ActionRow::new();
+            foreach ($chunk as $case) {
+                $row->addComponent(
+                    Button::new(Button::STYLE_DANGER, "mph:{$case['id']}:{$targetId}")->setLabel(self::deleteLabel($case)),
+                );
+            }
+            $message->addComponent($row);
+        }
+
+        return $message;
+    }
+
+    /**
+     * Void the case behind a history **Delete** button and re-render the list
+     * in place. Takes the same path as `/mod delwarn`, so the escalation count
+     * and any scheduled unban follow.
+     */
+    private function onHistoryButton(Tutelar $bot, Interaction $ci, Guild $guild, int $caseId, string $targetId): PromiseInterface
+    {
+        if (! Permissions::forInteraction(Permissions::MODERATOR, $ci)) {
+            return $ci->respondWithMessage(Tutelar::reply(false)->setContent('You need a moderator permission to void a case.'), true);
+        }
+
+        $voided = $this->moderation->voidCase($guild, $caseId);
+
+        return $ci->updateMessage($this->history($bot, $guild, $targetId, $voided !== null
+            ? "🗑️ Case #{$caseId} voided."
+            : "Case #{$caseId} was already gone."));
+    }
+
     // --- button handling ---------------------------------------------------
 
     private function onButton(Tutelar $bot, Interaction $ci, Guild $guild, string $targetId, string $action): PromiseInterface
@@ -242,10 +301,7 @@ final class ModPanel implements Module
             );
         }
         if ($action === 'modlogs') {
-            return $ci->respondWithMessage(
-                Tutelar::reply(false)->addEmbed($this->moderation->caseListEmbed($bot, $guild, $targetId, null)),
-                true,
-            );
+            return $ci->respondWithMessage($this->history($bot, $guild, $targetId, null), true);
         }
 
         $refusal = $this->moderation->guardMember($guild, $ci->member instanceof Member ? $ci->member : null, $targetId, allowAbsent: $action === 'unban');
@@ -358,6 +414,20 @@ final class ModPanel implements Module
         }
 
         return "Next warning auto-{$next['action']}" . ($next['duration'] ? " ({$next['duration']})" : '') . '.';
+    }
+
+    /**
+     * The label on a history **Delete** button: the case number and its kind,
+     * so a row of them is still readable ("🗑️ #42 warn"). Clipped to Discord's
+     * 80-character button-label limit. Pure.
+     *
+     * @param array{id: int|string, type?: string} $case
+     */
+    public static function deleteLabel(array $case): string
+    {
+        $type = trim((string) ($case['type'] ?? ''));
+
+        return Text::clip('🗑️ #' . $case['id'] . ($type !== '' ? " {$type}" : ''), 80);
     }
 
     /** @return PromiseInterface<?Member> */

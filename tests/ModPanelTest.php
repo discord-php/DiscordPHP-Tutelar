@@ -57,4 +57,26 @@ final class ModPanelTest extends TestCase
             $this->assertStringContainsString($step['action'], $hint);
         }
     }
+
+    public function testDeleteLabelNamesTheCaseAndItsKind(): void
+    {
+        $this->assertSame('🗑️ #42 warn', ModPanel::deleteLabel(['id' => 42, 'type' => 'warn']));
+        $this->assertSame('🗑️ #7', ModPanel::deleteLabel(['id' => '7']));
+    }
+
+    public function testDeleteLabelFitsDiscordsButtonLimit(): void
+    {
+        $label = ModPanel::deleteLabel(['id' => 42, 'type' => str_repeat('x', 200)]);
+
+        $this->assertLessThanOrEqual(80, mb_strlen($label));
+        $this->assertStringStartsWith('🗑️ #42', $label);
+    }
+
+    public function testAHistoryPageOfDeleteButtonsFitsDiscordsComponentLimits(): void
+    {
+        // The list is capped at CASE_LIST_LIMIT and rendered five buttons to a
+        // row; Discord allows five rows of five on a message.
+        $this->assertLessThanOrEqual(25, Moderation::CASE_LIST_LIMIT);
+        $this->assertLessThanOrEqual(5, (int) ceil(Moderation::CASE_LIST_LIMIT / 5));
+    }
 }

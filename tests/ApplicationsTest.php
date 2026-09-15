@@ -254,6 +254,40 @@ final class ApplicationsTest extends TestCase
         $this->assertStringContainsString('Nobody', $summary, 'no targets and no known owner means nobody is pinged');
     }
 
+    // --- command registration --------------------------------------------
+
+    public function testAMissingCommandNeedsRegistering(): void
+    {
+        $this->assertTrue(Applications::needsRegistration(null, Applications::SUBCOMMANDS));
+    }
+
+    public function testACommandRegisteredBeforeNotifyExistedIsUpdated(): void
+    {
+        // Exactly what an install from the previous release has: Discord keeps
+        // serving the definition it was given, so `notify` would never appear.
+        $this->assertTrue(Applications::needsRegistration(['view', 'rules'], Applications::SUBCOMMANDS));
+    }
+
+    public function testAnUpToDateCommandIsLeftAlone(): void
+    {
+        $this->assertFalse(Applications::needsRegistration(Applications::SUBCOMMANDS, Applications::SUBCOMMANDS));
+        $this->assertFalse(
+            Applications::needsRegistration(['rules', 'view', 'notify'], Applications::SUBCOMMANDS),
+            'order is Discord\'s business, not a reason to rewrite the command',
+        );
+        $this->assertFalse(
+            Applications::needsRegistration(['view', 'notify', 'rules', 'leftover'], Applications::SUBCOMMANDS),
+            'a sub-command we no longer define is not worth a write on every boot',
+        );
+    }
+
+    public function testEverySubCommandTheModuleDefinesIsListed(): void
+    {
+        // SUBCOMMANDS is what boot() compares against; if it drifts from the
+        // real definition, a new sub-command silently never registers.
+        $this->assertSame(['view', 'notify', 'rules'], Applications::SUBCOMMANDS);
+    }
+
     // --- ping targets ----------------------------------------------------
 
     public function testNormaliseMentionsKeepsOnlyUsableUserAndRoleIds(): void

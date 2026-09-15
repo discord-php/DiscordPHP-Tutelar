@@ -116,7 +116,7 @@ top role isn't below yours).
 | --- | --- |
 | kick / ban / unban / timeout | …and a numbered **case** for each, posted to `modlog` |
 | a 90-day, unqueryable audit log | `/mod case <n>`, `/mod modlogs @user`, `/mod reason <n>` — a durable case book in `var/moderation.json` |
-| — (no warning concept) | `/mod warn`, `/mod warnings`, `/mod delwarn`, with **escalation**: 3 → 1h timeout, 5 → 1d, 7 → kick, 10 → ban |
+| — (no warning concept) | `/mod warn`, `/mod warnings`, `/mod delwarn`, with **escalation**: 3 → 1h timeout, 5 → 1d, 7 → kick, 10 → ban. The panel's **History** button lists the cases with a **Delete** button on each, so voiding one never needs its number |
 | — (no scheduled unban) | `/mod ban … duration:7d` and a 30-second sweep that lifts it and closes the case |
 | — (no private notes) | `/mod note @user text` |
 | bulk delete (all-or-nothing, ≤100, <14 days) | `/mod purge count [user] [contains] [bots]` — filtered client-side, old messages skipped |

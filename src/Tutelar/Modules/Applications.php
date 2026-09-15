@@ -92,6 +92,15 @@ final class Applications implements Module
     private const MENTION_LIMIT = 10;
 
     /**
+     * Every sub-command `/applications` should expose. Compared against what
+     * Discord has registered on boot ({@see needsRegistration()}), so adding one
+     * here is enough to make an existing install pick it up.
+     *
+     * @var list<string>
+     */
+    public const SUBCOMMANDS = ['view', 'notify', 'rules'];
+
+    /**
      * The per-guild rules, and their out-of-the-box values.
      *
      * @var array{auto: bool, min_account_age_days: int, require_answers: bool, require_clean_record: bool}
@@ -123,8 +132,27 @@ final class Applications implements Module
     public function boot(Tutelar $bot): void
     {
         $bot->application->commands->freshen()->then(function ($repo) use ($bot): void {
-            if ($repo->get('name', 'applications') !== null) {
+            // NOT the usual "exists → leave it alone" guard. `/applications`
+            // shipped before `notify` existed, and Discord keeps serving the
+            // definition it was given — so an existing install would never see
+            // the new sub-command. Re-register whenever what's registered is
+            // missing one of ours; creating a global command by a name that
+            // already exists updates it in place.
+            $existing = $repo->get('name', 'applications');
+            $registered = null;
+            if ($existing !== null) {
+                $registered = [];
+                foreach ($existing->options ?? [] as $option) {
+                    $registered[] = (string) $option->name;
+                }
+            }
+
+            if (! self::needsRegistration($registered, self::SUBCOMMANDS)) {
                 return;
+            }
+
+            if ($registered !== null) {
+                $bot->logger->info('[applications] updating /applications — registered sub-commands (' . implode(', ', $registered) . ') are missing one of ' . implode(', ', self::SUBCOMMANDS));
             }
 
             $sub = static fn(string $name, string $desc): Option => (new Option($bot))
@@ -754,6 +782,25 @@ final class Applications implements Module
         }
 
         return $head . "\n" . implode("\n", array_map(static fn(string $r): string => "• {$r}", $reasons));
+    }
+
+    /**
+     * Does `/applications` need (re-)registering with Discord? True when there
+     * is no command at all (`$registered` null), or when the registered one is
+     * missing any sub-command this version defines — which is what strands a
+     * newly added sub-command on a bot that already registered the old
+     * definition. Pure.
+     *
+     * @param list<string>|null $registered sub-command names Discord has, or null when the command doesn't exist
+     * @param list<string>      $wanted     sub-command names this version defines
+     */
+    public static function needsRegistration(?array $registered, array $wanted): bool
+    {
+        if ($registered === null) {
+            return true;
+        }
+
+        return array_diff($wanted, $registered) !== [];
     }
 
     /**

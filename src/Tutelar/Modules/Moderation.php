@@ -51,6 +51,12 @@ use function React\Promise\resolve;
  */
 final class Moderation implements Module
 {
+    /**
+     * How many cases a history listing shows. {@see ModPanel} renders one
+     * delete button per listed case, so the two must agree.
+     */
+    public const CASE_LIST_LIMIT = 15;
+
     private const COLOUR = [
         'warn' => 0xE8B923, 'note' => 0x8F8F9C, 'kick' => 0xE07A2E, 'ban' => 0xD84B4B,
         'unban' => 0x4B9E6B, 'timeout' => 0xE8B923, 'untimeout' => 0x4B9E6B,
@@ -347,13 +353,34 @@ final class Moderation implements Module
 
     private function delCase(Tutelar $bot, Interaction $i, Guild $guild, int $caseId): PromiseInterface
     {
+        $voided = $this->voidCase($guild, $caseId);
+
+        return $i->respondWithMessage(
+            Tutelar::reply(false)->setContent($voided !== null ? "🗑️ Case #{$caseId} voided." : "No case #{$caseId} in this server."),
+            true,
+        );
+    }
+
+    /**
+     * Void one case: drop it from the case book (which drops it from the
+     * escalation count) and, for a ban, cancel any scheduled unban that was
+     * riding on it. Returns the removed case, or null when there was none.
+     *
+     * Shared with {@see ModPanel}'s history view so a warning deleted from a
+     * button behaves exactly like `/mod delwarn`.
+     */
+    public function voidCase(Guild $guild, int $caseId): ?array
+    {
         $case = $this->cases->get($guild->id, $caseId);
-        $ok = $case !== null && $this->cases->remove($guild->id, $caseId);
-        if ($ok && ($case['type'] ?? '') === 'ban') {
+        if ($case === null || ! $this->cases->remove($guild->id, $caseId)) {
+            return null;
+        }
+
+        if (($case['type'] ?? '') === 'ban') {
             $this->cases->clearReversal($guild->id, (string) $case['user']);
         }
 
-        return $i->respondWithMessage(Tutelar::reply(false)->setContent($ok ? "🗑️ Case #{$caseId} voided." : "No case #{$caseId} in this server."), true);
+        return $case;
     }
 
     private function showCase(Tutelar $bot, Interaction $i, Guild $guild, int $caseId): PromiseInterface
@@ -375,11 +402,11 @@ final class Moderation implements Module
         }
 
         $lines = [];
-        foreach (array_slice($list, 0, 15) as $c) {
+        foreach (array_slice($list, 0, self::CASE_LIST_LIMIT) as $c) {
             $when = '<t:' . (int) $c['at'] . ':d>';
             $lines[] = "**#{$c['id']}** · `{$c['type']}` · {$when} · " . Text::clip((string) $c['reason'], 120);
         }
-        $more = count($list) > 15 ? "\n… and " . (count($list) - 15) . ' more' : '';
+        $more = count($list) > self::CASE_LIST_LIMIT ? "\n… and " . (count($list) - self::CASE_LIST_LIMIT) . ' more' : '';
 
         $embed = (new Embed($bot))->setColor(0xA7C5FD)
             ->setTitle(ucfirst($label) . " for a member ({$list[0]['user']})")
@@ -571,10 +598,10 @@ final class Moderation implements Module
         }
 
         $lines = [];
-        foreach (array_slice($list, 0, 15) as $c) {
+        foreach (array_slice($list, 0, self::CASE_LIST_LIMIT) as $c) {
             $lines[] = "**#{$c['id']}** · `{$c['type']}` · <t:" . (int) $c['at'] . ':d> · ' . Text::clip((string) $c['reason'], 120);
         }
-        $more = count($list) > 15 ? "\n… and " . (count($list) - 15) . ' more' : '';
+        $more = count($list) > self::CASE_LIST_LIMIT ? "\n… and " . (count($list) - self::CASE_LIST_LIMIT) . ' more' : '';
 
         return (new Embed($bot))->setColor(0xA7C5FD)
             ->setTitle(ucfirst($label) . " for a member ({$list[0]['user']})")
