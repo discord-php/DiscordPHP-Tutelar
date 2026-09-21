@@ -13,6 +13,10 @@ declare(strict_types=1);
 
 namespace Tutelar\Moderation;
 
+use React\Promise\PromiseInterface;
+use Tutelar\Support\Filesystem;
+use Tutelar\Support\JsonFile;
+
 /**
  * The moderation case book: a JSON-backed, per-guild, monotonically numbered log
  * of every moderator action (`warn`, `note`, `kick`, `ban`, `timeout`, `unban`,
@@ -32,13 +36,42 @@ final class CaseBook
 
     private array $data;
 
-    public function __construct(private readonly string $path)
-    {
-        $this->data = is_file($path) ? (array) json_decode((string) file_get_contents($path), true) : [];
+    private readonly JsonFile $file;
 
-        foreach (glob($path . '.*.tmp') ?: [] as $stale) {
-            @unlink($stale);
-        }
+    public function __construct(string $path, ?Filesystem $filesystem = null)
+    {
+        $this->file = new JsonFile($path, $filesystem);
+        $this->data = $this->file->load();
+    }
+
+    /**
+     * Anything that went wrong reading the case file, for the startup
+     * report. A silently empty case book would look exactly like a server
+     * where nobody has ever been warned.
+     *
+     * @return list<string>
+     */
+    public function warnings(): array
+    {
+        return $this->file->warnings();
+    }
+
+    /** Where the cases live, for the log. */
+    public function path(): string
+    {
+        return $this->file->path();
+    }
+
+    /** Resolves once everything changed so far has reached the disk. */
+    public function saved(): PromiseInterface
+    {
+        return $this->file->saved();
+    }
+
+    /** Writes now, blocking. For shutdown. */
+    public function flush(): bool
+    {
+        return $this->file->flush();
     }
 
     /**
@@ -214,22 +247,13 @@ final class CaseBook
         return $max + 1;
     }
 
+    /**
+     * Hands the new state to {@see JsonFile}, which writes it atomically and
+     * off the loop, keeps a recoverable backup, and folds a burst of case
+     * changes into a single write.
+     */
     private function save(): void
     {
-        $json = json_encode($this->data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
-        if ($json === false) {
-            return;
-        }
-
-        $dir = \dirname($this->path);
-        if (! is_dir($dir)) {
-            @mkdir($dir, 0o777, true);
-        }
-
-        $tmp = $this->path . '.' . getmypid() . '.tmp';
-        if (file_put_contents($tmp, $json) === false) {
-            return;
-        }
-        @rename($tmp, $this->path);
+        $this->file->save($this->data);
     }
 }

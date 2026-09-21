@@ -13,10 +13,20 @@ declare(strict_types=1);
 
 namespace Tutelar;
 
+use React\Promise\PromiseInterface;
+use Tutelar\Support\Filesystem;
+use Tutelar\Support\JsonFile;
+
 /**
  * JSON-file backed store for everything Tutelar changes at runtime and must keep
  * across a restart: per-guild channel/role overrides plus small module scratch
- * space. Writes are atomic (temp file + rename).
+ * space — which includes every open ticket and its progress log.
+ *
+ * Durability and non-blocking writes both belong to {@see JsonFile}: the file is
+ * written atomically, a `.bak` is kept, a damaged file is recovered from it or
+ * preserved rather than overwritten, and the write itself happens off the event
+ * loop where the platform can. A mutator here updates memory and returns; the
+ * disk catches up.
  *
  * Replaces the legacy `VarSave()` / `VarLoad()` and the in-memory
  * `$tutelar->discord_config` array.
@@ -31,13 +41,49 @@ final class Store
 {
     private array $data;
 
-    public function __construct(private readonly string $path)
-    {
-        $this->data = is_file($path) ? (array) json_decode((string) file_get_contents($path), true) : [];
+    private readonly JsonFile $file;
 
-        foreach (glob($path . '.*.tmp') ?: [] as $stale) {
-            @unlink($stale);
-        }
+    public function __construct(string $path, ?Filesystem $filesystem = null)
+    {
+        $this->file = new JsonFile($path, $filesystem);
+        $this->data = $this->file->load();
+    }
+
+    /**
+     * Anything that went wrong reading the state file, for the startup
+     * report. Empty on a normal start.
+     *
+     * @return list<string>
+     */
+    public function warnings(): array
+    {
+        return $this->file->warnings();
+    }
+
+    /** Where the state lives, and what it is written with — for the log. */
+    public function path(): string
+    {
+        return $this->file->path();
+    }
+
+    public function filesystem(): Filesystem
+    {
+        return $this->file->filesystem();
+    }
+
+    /** Resolves once everything changed so far has reached the disk. */
+    public function saved(): PromiseInterface
+    {
+        return $this->file->saved();
+    }
+
+    /**
+     * Writes now, blocking. For shutdown: a queued write would never run
+     * once the loop has stopped.
+     */
+    public function flush(): bool
+    {
+        return $this->file->flush();
     }
 
     /**
@@ -114,27 +160,11 @@ final class Store
     }
 
     /**
-     * Atomically persists the store: encode, write a pid-suffixed sibling temp
-     * file, then rename it over the target. Bails without touching the live file
-     * if the data can't be encoded (e.g. a module stashed a non-UTF-8 string) or
-     * the temp write fails, so a bad value never truncates the state.
+     * Hands the new state to {@see JsonFile}, which writes it off the loop
+     * and folds rapid changes into a single write.
      */
     private function save(): void
     {
-        $json = json_encode($this->data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
-        if ($json === false) {
-            return;
-        }
-
-        $dir = \dirname($this->path);
-        if (! is_dir($dir)) {
-            @mkdir($dir, 0o777, true);
-        }
-
-        $tmp = $this->path . '.' . getmypid() . '.tmp';
-        if (file_put_contents($tmp, $json) === false) {
-            return;
-        }
-        @rename($tmp, $this->path);
+        $this->file->save($this->data);
     }
 }

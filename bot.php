@@ -19,6 +19,7 @@ use Monolog\Handler\StreamHandler;
 use Monolog\Level;
 use Monolog\Logger;
 use Tutelar\Moderation\CaseBook;
+use Tutelar\Support\Filesystem;
 use Tutelar\Modules\Applications;
 use Tutelar\Modules\Configuration;
 use Tutelar\Modules\EventLogger;
@@ -103,7 +104,13 @@ $configPath = getenv('TUTELAR_CONFIG') ?: ($baseDir . '/config.json');
 $statePath = getenv('TUTELAR_STATE_PATH') ?: ($baseDir . '/var/state.json');
 
 $config = Config::load($configPath, $_ENV + getenv());
-$store = new Store($statePath);
+
+// One filesystem for both stores: asynchronous where the host has ext-uv or
+// ext-eio, durable and blocking where it does not. Either way a save never
+// makes the loop wait on the caller's side.
+$filesystem = Filesystem::create();
+
+$store = new Store($statePath, $filesystem);
 
 // GUILD_MEMBERS and MESSAGE_CONTENT are privileged — enable them for the
 // application in the Discord Developer Portal or the gateway will refuse the
@@ -121,7 +128,12 @@ $bot = new Tutelar($config, $store, [
     'loadAllMembers' => false,
 ]);
 
-$caseBook = new CaseBook(getenv('TUTELAR_MODERATION_PATH') ?: ($baseDir . '/var/moderation.json'));
+$caseBook = new CaseBook(getenv('TUTELAR_MODERATION_PATH') ?: ($baseDir . '/var/moderation.json'), $filesystem);
+
+// Read before the gateway existed, so it is reported once there is a log
+// and an owner to tell.
+$bot->addStartupWarnings('moderation history', $caseBook->warnings());
+
 $moderation = new Moderation($caseBook);
 $tickets = new Tickets($moderation);
 
@@ -137,5 +149,18 @@ $bot
     ->addModule($tickets)
     ->addModule(new ModPanel($moderation, $tickets))
     ->addModule(new EventLogger());
+
+// Ctrl-C has to put a queued write on the disk: once the loop stops, it would
+// never run, and the change somebody just made would be the one lost.
+foreach ([\defined('SIGINT') ? SIGINT : null, \defined('SIGTERM') ? SIGTERM : null] as $signal) {
+    if ($signal !== null && function_exists('pcntl_signal')) {
+        $bot->getLoop()->addSignal($signal, static function () use ($bot, $store, $caseBook, $logger): void {
+            $logger->info('[tutelar] shutting down');
+            $store->flush();
+            $caseBook->flush();
+            $bot->close();
+        });
+    }
+}
 
 $bot->run();

@@ -28,7 +28,7 @@ final class Config
 {
     /**
      * @param string                                               $token            Discord bot token (from the environment, never the file).
-     * @param string|null                                          $ownerId          Bot owner's Discord user id. Loaded for future owner-only commands; no module reads it yet.
+     * @param string|null                                          $ownerId          Bot owner's Discord user id. Used to report a store that failed to load; owner-only commands may follow.
      * @param string|null                                          $github           Repo URL shown in embed footers.
      * @param list<array{name: string, type: int, state?: string}> $presence         Rotating activity list; `type` is an Activity type (0-5), `state` a presence status.
      * @param int                                                  $presenceInterval Seconds between presence changes.
