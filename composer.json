@@ -1,6 +1,7 @@
 {
     "name": "vzgcoders/discordphp-tutelar",
     "description": "Tutelar — a Discord community-management bot (event logging, native onboarding / Channels & Roles management, rotating presence, per-guild config, SS13 hooks), rebuilt on DiscordPHP with a PSR-4 module architecture.",
+    "type": "project",
     "license": "MIT",
     "authors": [
         {
