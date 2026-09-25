@@ -12,7 +12,7 @@
     "require": {
         "php": "^8.3",
         "team-reflex/discord-php": "dev-master",
-        "discord-php/http": "dev-master as 10.1.7",
+        "discord-php/http": "dev-master as 10.9.8",
         "react/filesystem": "^0.2@dev"
     },
     "require-dev": {
